@@ -1511,6 +1511,184 @@
       </div>
     </div>
 
+    <!-- MODAL 6: AGENT PORTFOLIO & MONTHLY / DATE-WISE BREAKDOWN DRILLDOWN -->
+    <div class="modal-backdrop" id="modal-agent-portfolio">
+      <div class="modal-dialog modal-dialog-xl">
+        <div class="modal-header">
+          <div class="modal-title-wrap" style="gap: 0.85rem; align-items: center;">
+            <div id="agent-detail-avatar" class="agent-avatar-circle" style="width: 44px; height: 44px; font-size: 1.1rem; background-color: #3b82f6;">AM</div>
+            <div>
+              <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap: wrap;">
+                <h3 id="agent-detail-name" style="margin:0; font-size:1.2rem; color:#ffffff;">Agent Portfolio</h3>
+                <span class="metric-badge badge-blue" id="agent-detail-badge">Collection Agent</span>
+                <span class="metric-badge badge-purple" id="agent-detail-tier">Tier: Standard</span>
+              </div>
+              <p id="agent-detail-contact" class="panel-subtitle" style="margin:0.2rem 0 0 0; font-size:0.8rem; color:#94a3b8;">
+                Loading contact details...
+              </p>
+            </div>
+          </div>
+          <button class="btn-close" onclick="app.closeModal('modal-agent-portfolio')">&times;</button>
+        </div>
+
+        <div class="modal-body-scroll">
+          <!-- Filter Controls Bar Inside Modal -->
+          <div class="agent-detail-filter-bar">
+            <div class="filter-controls invoice-filter-controls" style="width: 100%; justify-content: space-between; align-items: center;">
+              <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                <!-- Monthly Filter -->
+                <div class="filter-pill-item">
+                  <label class="filter-pill-label" for="agent-detail-month">Monthly:</label>
+                  <select id="agent-detail-month" class="filter-dropdown">
+                    <option value="">📅 All Months</option>
+                  </select>
+                </div>
+
+                <!-- Date Wise Filter -->
+                <div class="filter-pill-item date-filter-pill">
+                  <label class="filter-pill-label" for="agent-detail-date-from">Date Wise:</label>
+                  <div class="date-filter-inputs">
+                    <input type="date" id="agent-detail-date-from" class="filter-date" title="Specific Date or From Date">
+                    <span class="date-range-sep">to</span>
+                    <input type="date" id="agent-detail-date-to" class="filter-date" title="To Date (Optional range)">
+                  </div>
+                </div>
+
+                <!-- Reset Filter Button -->
+                <button type="button" class="btn-reset-filters" title="Reset to All-Time" onclick="app.resetAgentDetailFilters()">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                  Reset
+                </button>
+              </div>
+
+              <!-- Filter Active Status Tag -->
+              <div id="agent-detail-filter-status" class="filter-status-tag">
+                🌐 All-Time Overall Portfolio
+              </div>
+            </div>
+          </div>
+
+          <!-- KPI Metric Boxes -->
+          <div class="agent-portfolio-kpis">
+            <div class="invoice-metric-box blue">
+              <span class="label">Amount to Collect (Target)</span>
+              <span class="val" id="agent-kpi-target">₹0</span>
+              <span class="kpi-subtext" id="agent-kpi-target-sub">Across Assigned Companies</span>
+            </div>
+            <div class="invoice-metric-box emerald">
+              <span class="label">Amount Collected</span>
+              <span class="val" id="agent-kpi-collected">₹0</span>
+              <span class="kpi-subtext" id="agent-kpi-collected-sub">Recovered Amount</span>
+            </div>
+            <div class="invoice-metric-box amber">
+              <span class="label">Amount Pending</span>
+              <span class="val" id="agent-kpi-pending">₹0</span>
+              <span class="kpi-subtext" id="agent-kpi-pending-sub">Remaining Balance Due</span>
+            </div>
+            <div class="invoice-metric-box purple">
+              <span class="label">Recovery Progress</span>
+              <span class="val" id="agent-kpi-progress">0%</span>
+              <span class="kpi-subtext" id="agent-kpi-progress-sub">Goal Achievement</span>
+            </div>
+          </div>
+
+          <!-- Section 1: Assigned Companies Portfolio -->
+          <div class="agent-portfolio-section">
+            <div class="section-title-bar">
+              <div style="display:flex; align-items:center; gap:0.5rem;">
+                <span style="font-size:1.15rem;">🏢</span>
+                <h4 style="margin:0; font-size:0.95rem; font-weight:700; color:#f1f5f9;">Which Companies He Was Assigned</h4>
+                <span class="metric-badge badge-blue" id="agent-assigned-companies-count">0 Companies</span>
+              </div>
+            </div>
+            <div class="table-responsive" style="margin-top:0.75rem;">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Company Name</th>
+                    <th>Category</th>
+                    <th>Contact Person</th>
+                    <th>Target / Invoiced</th>
+                    <th>Collected</th>
+                    <th>Pending Dues</th>
+                    <th>Recovery Rate</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="agent-companies-breakdown-tbody">
+                  <!-- Populated via JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Section 2: Invoices Generated for His Companies in Selected Period -->
+          <div class="agent-portfolio-section">
+            <div class="section-title-bar">
+              <div style="display:flex; align-items:center; gap:0.5rem;">
+                <span style="font-size:1.15rem;">📄</span>
+                <h4 style="margin:0; font-size:0.95rem; font-weight:700; color:#f1f5f9;">Invoices Generated for His Companies</h4>
+                <span class="metric-badge badge-purple" id="agent-invoices-count">0 Invoices</span>
+              </div>
+            </div>
+            <div class="table-responsive" style="margin-top:0.75rem; max-height: 220px; overflow-y: auto;">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Invoice #</th>
+                    <th>Invoice Date</th>
+                    <th>Due Date</th>
+                    <th>Company</th>
+                    <th>Bill Amount</th>
+                    <th>Notes / Service</th>
+                  </tr>
+                </thead>
+                <tbody id="agent-invoices-breakdown-tbody">
+                  <!-- Populated via JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Section 3: Collections Logged by This Agent in Selected Period -->
+          <div class="agent-portfolio-section">
+            <div class="section-title-bar">
+              <div style="display:flex; align-items:center; gap:0.5rem;">
+                <span style="font-size:1.15rem;">💵</span>
+                <h4 style="margin:0; font-size:0.95rem; font-weight:700; color:#f1f5f9;">Collections Recovered by This Agent</h4>
+                <span class="metric-badge badge-green" id="agent-collections-count">0 Receipts</span>
+              </div>
+            </div>
+            <div class="table-responsive" style="margin-top:0.75rem; max-height: 220px; overflow-y: auto;">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Receipt / Ref #</th>
+                    <th>Payment Date</th>
+                    <th>Company</th>
+                    <th>Amount Collected</th>
+                    <th>Payment Method</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="agent-collections-breakdown-tbody">
+                  <!-- Populated via JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer" style="justify-content: space-between;">
+          <div style="display:flex; gap:0.5rem;" id="agent-detail-footer-actions">
+            <!-- Dynamic Buttons Populated via JS -->
+          </div>
+          <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-agent-portfolio')">Close</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Toast Notification Container -->
     <div id="toast-container" class="toast-container"></div>
   </div>

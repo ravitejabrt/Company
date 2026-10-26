@@ -1002,6 +1002,9 @@ class CollectionApp {
     this.renderRewardsTable();
     this.renderLedgerTable();
     this.populateSelectDropdowns();
+    if (this.currentViewingAgentId && document.getElementById('modal-agent-portfolio')?.classList.contains('open')) {
+      this.renderAgentPortfolioBreakdown();
+    }
   }
 
   renderPrimeStats() {
@@ -1689,7 +1692,7 @@ class CollectionApp {
       const initials = agent.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
 
       return `
-        <div class="agent-fleet-card">
+        <div class="agent-fleet-card clickable-fleet-card" onclick="app.openAgentPortfolioModal(${agent.id})" title="Click to view assigned companies, collections, and monthly breakdown">
           <div>
             <div class="agent-fleet-header">
               <div class="agent-avatar-circle" style="background-color: ${agent.badgeColor};">
@@ -1731,20 +1734,334 @@ class CollectionApp {
             </div>
           </div>
 
-          <div class="agent-fleet-actions">
-            <button class="btn btn-sm btn-amber flex-1" onclick="app.quickRewardAgent(${agent.id}, '${agent.name}', ${agent.suggestedBonus})">
+          <div class="agent-fleet-actions" style="flex-wrap: wrap;">
+            <button class="btn btn-sm btn-outline-primary" style="width: 100%; justify-content: center; margin-bottom: 0.35rem;" onclick="event.stopPropagation(); app.openAgentPortfolioModal(${agent.id})" title="View Assigned Companies, Invoices, and Collections">
+              🔍 View Portfolio & Breakdown
+            </button>
+            <button class="btn btn-sm btn-amber flex-1" onclick="event.stopPropagation(); app.quickRewardAgent(${agent.id}, '${agent.name}', ${agent.suggestedBonus})">
               🏆 Grant Reward
             </button>
-            <button class="btn btn-sm btn-secondary" onclick="app.editAgent(${agent.id})">
+            <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); app.editAgent(${agent.id})">
               Edit
             </button>
-            <button class="btn btn-sm btn-outline-danger" onclick="app.deleteAgent(${agent.id})">
+            <button class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation(); app.deleteAgent(${agent.id})">
               Delete
             </button>
           </div>
         </div>
       `;
     }).join('');
+  }
+
+  // ====================================================================
+  // AGENT PORTFOLIO & MONTHLY / DATE-WISE BREAKDOWN DRILLDOWN
+  // ====================================================================
+  openAgentPortfolioModal(agentId) {
+    this.currentViewingAgentId = Number(agentId);
+    this.populateAgentDetailMonthDropdown(this.currentViewingAgentId);
+
+    const dateFrom = document.getElementById('agent-detail-date-from');
+    const dateTo = document.getElementById('agent-detail-date-to');
+    if (dateFrom) dateFrom.value = '';
+    if (dateTo) dateTo.value = '';
+
+    this.renderAgentPortfolioBreakdown();
+    this.openModal('modal-agent-portfolio');
+  }
+
+  populateAgentDetailMonthDropdown(agentId) {
+    const monthSelect = document.getElementById('agent-detail-month');
+    if (!monthSelect) return;
+
+    const assignedCompanies = this.companies.filter(c => Number(c.agent_id) === Number(agentId));
+    const compIdSet = new Set(assignedCompanies.map(c => Number(c.id)));
+
+    const monthsSet = new Set();
+    (this.invoices || []).forEach(inv => {
+      if ((compIdSet.has(Number(inv.company_id)) || Number(inv.agent_id) === Number(agentId)) && inv.invoice_date && inv.invoice_date.length >= 7) {
+        monthsSet.add(inv.invoice_date.substring(0, 7));
+      }
+    });
+
+    (this.collections || []).forEach(col => {
+      if (Number(col.agent_id) === Number(agentId) && col.payment_date && col.payment_date.length >= 7) {
+        monthsSet.add(col.payment_date.substring(0, 7));
+      }
+    });
+
+    const sortedMonths = Array.from(monthsSet).sort().reverse();
+    let html = '<option value="">📅 All Months (Overall)</option>';
+    sortedMonths.forEach(ym => {
+      const [yr, mo] = ym.split('-');
+      const d = new Date(Number(yr), Number(mo) - 1, 1);
+      const name = isNaN(d) ? ym : d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      html += `<option value="${ym}">📅 ${name}</option>`;
+    });
+
+    monthSelect.innerHTML = html;
+  }
+
+  resetAgentDetailFilters() {
+    const monthSelect = document.getElementById('agent-detail-month');
+    const dateFrom = document.getElementById('agent-detail-date-from');
+    const dateTo = document.getElementById('agent-detail-date-to');
+    if (monthSelect) monthSelect.value = '';
+    if (dateFrom) dateFrom.value = '';
+    if (dateTo) dateTo.value = '';
+    this.renderAgentPortfolioBreakdown();
+    this.showToast('Reset to all-time agent portfolio.');
+  }
+
+  renderAgentPortfolioBreakdown() {
+    if (!this.currentViewingAgentId) return;
+    const agentId = Number(this.currentViewingAgentId);
+    const agent = this.agents.find(a => Number(a.id) === agentId) || { name: 'Agent', email: '', phone: '', badgeColor: '#3b82f6' };
+    const shareMeta = this.agentShare.find(a => Number(a.id) === agentId) || {};
+
+    // Header info
+    const avatarEl = document.getElementById('agent-detail-avatar');
+    const nameEl = document.getElementById('agent-detail-name');
+    const contactEl = document.getElementById('agent-detail-contact');
+    const tierEl = document.getElementById('agent-detail-tier');
+
+    const initials = agent.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    if (avatarEl) {
+      avatarEl.textContent = initials;
+      avatarEl.style.backgroundColor = agent.badgeColor || '#3b82f6';
+    }
+    if (nameEl) nameEl.textContent = agent.name;
+    if (contactEl) contactEl.textContent = `${agent.email || 'No email'} • ${agent.phone || 'No phone'}`;
+    if (tierEl) tierEl.textContent = `Tier: ${shareMeta.suggestedTier || 'Standard'}`;
+
+    // Read Filter Values
+    const filterMonth = document.getElementById('agent-detail-month')?.value || '';
+    const filterDateFrom = document.getElementById('agent-detail-date-from')?.value || '';
+    const filterDateTo = document.getElementById('agent-detail-date-to')?.value || '';
+
+    let monthLabel = '';
+    if (filterMonth) {
+      const [yr, mo] = filterMonth.split('-');
+      const d = new Date(Number(yr), Number(mo) - 1, 1);
+      monthLabel = isNaN(d) ? filterMonth : d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    }
+
+    let dateLabel = '';
+    if (filterDateFrom && filterDateTo) {
+      dateLabel = `${filterDateFrom} to ${filterDateTo}`;
+    } else if (filterDateFrom) {
+      dateLabel = `Date: ${filterDateFrom}`;
+    } else if (filterDateTo) {
+      dateLabel = `Up to: ${filterDateTo}`;
+    }
+
+    // Status tag
+    const statusTag = document.getElementById('agent-detail-filter-status');
+    if (statusTag) {
+      if (monthLabel && dateLabel) {
+        statusTag.innerHTML = `🗓️ ${monthLabel} &bull; 📅 ${dateLabel}`;
+      } else if (monthLabel) {
+        statusTag.innerHTML = `🗓️ Month: <strong>${monthLabel}</strong>`;
+      } else if (dateLabel) {
+        statusTag.innerHTML = `📅 Filter: <strong>${dateLabel}</strong>`;
+      } else {
+        statusTag.innerHTML = `🌐 All-Time Overall Portfolio`;
+      }
+    }
+
+    // 1. Assigned Companies
+    const assignedCompanies = this.companies.filter(c => Number(c.agent_id) === agentId);
+    const compIdSet = new Set(assignedCompanies.map(c => Number(c.id)));
+
+    // 2. Filter Invoices for his companies
+    const agentInvoices = this.invoices.filter(i => compIdSet.has(Number(i.company_id)) || Number(i.agent_id) === agentId);
+    const filteredInvoices = agentInvoices.filter(inv => {
+      const matchMonth = !filterMonth || (inv.invoice_date && inv.invoice_date.startsWith(filterMonth));
+      let matchDate = true;
+      if (filterDateFrom && filterDateTo) {
+        matchDate = inv.invoice_date >= filterDateFrom && inv.invoice_date <= filterDateTo;
+      } else if (filterDateFrom && !filterDateTo) {
+        matchDate = inv.invoice_date === filterDateFrom;
+      } else if (!filterDateFrom && filterDateTo) {
+        matchDate = inv.invoice_date <= filterDateTo;
+      }
+      return matchMonth && matchDate;
+    });
+
+    // 3. Filter Collections for this agent
+    const agentCollections = this.collections.filter(c => Number(c.agent_id) === agentId);
+    const filteredCollections = agentCollections.filter(col => {
+      const matchMonth = !filterMonth || (col.payment_date && col.payment_date.startsWith(filterMonth));
+      let matchDate = true;
+      if (filterDateFrom && filterDateTo) {
+        matchDate = col.payment_date >= filterDateFrom && col.payment_date <= filterDateTo;
+      } else if (filterDateFrom && !filterDateTo) {
+        matchDate = col.payment_date === filterDateFrom;
+      } else if (!filterDateFrom && filterDateTo) {
+        matchDate = col.payment_date <= filterDateTo;
+      }
+      return matchMonth && matchDate;
+    });
+
+    // Compute Metrics
+    const isFiltered = Boolean(filterMonth || filterDateFrom || filterDateTo);
+    let targetAmount = 0;
+    let collectedAmount = 0;
+    let pendingAmount = 0;
+
+    if (isFiltered) {
+      targetAmount = filteredInvoices.reduce((s, i) => s + Number(i.amount || 0), 0);
+      collectedAmount = filteredCollections.reduce((s, c) => s + Number(c.amount || 0), 0);
+      pendingAmount = Math.max(0, targetAmount - collectedAmount);
+    } else {
+      targetAmount = assignedCompanies.reduce((s, c) => s + Number(c.target_amount || 0), 0);
+      collectedAmount = agentCollections.reduce((s, c) => s + Number(c.amount || 0), 0);
+      pendingAmount = Math.max(0, targetAmount - collectedAmount);
+    }
+
+    const progressPercent = targetAmount > 0 ? Number(((collectedAmount / targetAmount) * 100).toFixed(1)) : (collectedAmount > 0 ? 100 : 0);
+
+    // Update KPI UI
+    const targetKpi = document.getElementById('agent-kpi-target');
+    const collectedKpi = document.getElementById('agent-kpi-collected');
+    const pendingKpi = document.getElementById('agent-kpi-pending');
+    const progressKpi = document.getElementById('agent-kpi-progress');
+
+    if (targetKpi) targetKpi.textContent = this.formatMoney(targetAmount);
+    if (collectedKpi) collectedKpi.textContent = this.formatMoney(collectedAmount);
+    if (pendingKpi) pendingKpi.textContent = this.formatMoney(pendingAmount);
+    if (progressKpi) progressKpi.textContent = `${progressPercent}%`;
+
+    const subTarget = document.getElementById('agent-kpi-target-sub');
+    const subCollected = document.getElementById('agent-kpi-collected-sub');
+    const subPending = document.getElementById('agent-kpi-pending-sub');
+    const subProgress = document.getElementById('agent-kpi-progress-sub');
+
+    if (isFiltered) {
+      const periodName = monthLabel || dateLabel;
+      if (subTarget) subTarget.textContent = `Billed in ${periodName} (${filteredInvoices.length} Bills)`;
+      if (subCollected) subCollected.textContent = `Recovered in ${periodName} (${filteredCollections.length} Receipts)`;
+      if (subPending) subPending.textContent = `Pending for ${periodName}`;
+      if (subProgress) subProgress.textContent = `Recovery rate for ${periodName}`;
+    } else {
+      if (subTarget) subTarget.textContent = `Across ${assignedCompanies.length} Assigned Accounts`;
+      if (subCollected) subCollected.textContent = `All-time total recovered (${agentCollections.length} Receipts)`;
+      if (subPending) subPending.textContent = `Total outstanding portfolio dues`;
+      if (subProgress) subProgress.textContent = `Overall recovery rate`;
+    }
+
+    // 1. Render Assigned Companies Table
+    const compCountEl = document.getElementById('agent-assigned-companies-count');
+    if (compCountEl) compCountEl.textContent = `${assignedCompanies.length} ${assignedCompanies.length === 1 ? 'Company' : 'Companies'}`;
+
+    const compTbody = document.getElementById('agent-companies-breakdown-tbody');
+    if (compTbody) {
+      if (assignedCompanies.length === 0) {
+        compTbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:1.25rem; color:#64748b;">No companies currently assigned to this agent.</td></tr>';
+      } else {
+        compTbody.innerHTML = assignedCompanies.map(c => {
+          const compFilteredInv = filteredInvoices.filter(i => Number(i.company_id) === Number(c.id));
+          const compFilteredCol = filteredCollections.filter(col => Number(col.company_id) === Number(c.id));
+
+          const compTarget = isFiltered ? compFilteredInv.reduce((s, i) => s + Number(i.amount || 0), 0) : Number(c.target_amount || 0);
+          const compCollected = isFiltered ? compFilteredCol.reduce((s, col) => s + Number(col.amount || 0), 0) : Number(c.collected_amount || 0);
+          const compPending = isFiltered ? Math.max(0, compTarget - compCollected) : Number(c.pending_amount || 0);
+          const compProgress = compTarget > 0 ? Number(((compCollected / compTarget) * 100).toFixed(1)) : (compCollected > 0 ? 100 : 0);
+
+          let statusBadgeClass = 'badge-blue';
+          let statusText = c.status || 'Pending';
+          if (compProgress >= 100 || statusText === 'Completed') {
+            statusBadgeClass = 'badge-green';
+            statusText = 'Completed';
+          } else if (compCollected > 0 || statusText === 'In Progress') {
+            statusBadgeClass = 'badge-amber';
+            statusText = 'In Progress';
+          }
+
+          return `
+            <tr>
+              <td><strong style="color:#ffffff;">${c.name}</strong></td>
+              <td><span class="metric-badge badge-blue">${c.category || 'General'}</span></td>
+              <td style="font-size:0.8rem; color:#94a3b8;">${c.contact_person || 'N/A'}<br><span style="color:#64748b;">${c.contact_phone || 'N/A'}</span></td>
+              <td style="font-weight:700; color:#38bdf8; font-family:'JetBrains Mono',monospace;">${this.formatMoney(compTarget)}</td>
+              <td style="font-weight:700; color:#34d399; font-family:'JetBrains Mono',monospace;">${this.formatMoney(compCollected)}</td>
+              <td style="font-weight:700; color:#fbbf24; font-family:'JetBrains Mono',monospace;">${this.formatMoney(compPending)}</td>
+              <td>
+                <div style="font-size:0.75rem; font-weight:700; color:#e2e8f0; margin-bottom:0.2rem;">${compProgress}%</div>
+                <div style="background:#1e293b; height:5px; border-radius:3px; width:80px; overflow:hidden;">
+                  <div style="background:#34d399; height:100%; width:${Math.min(100, compProgress)}%;"></div>
+                </div>
+              </td>
+              <td><span class="metric-badge ${statusBadgeClass}">${statusText}</span></td>
+              <td style="white-space:nowrap;">
+                <button class="btn btn-sm btn-outline-primary" onclick="app.closeModal('modal-agent-portfolio'); app.quickAddInvoiceForCompany(${c.id});" style="padding:0.2rem 0.45rem; font-size:0.72rem; margin-right:3px;" title="Add Bill">
+                  + Bill
+                </button>
+                <button class="btn btn-sm btn-emerald" onclick="app.closeModal('modal-agent-portfolio'); app.openRecordCollectionModal(${c.id});" style="padding:0.2rem 0.45rem; font-size:0.72rem;" title="Record Collection">
+                  + Collect
+                </button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+
+    // 2. Render Invoices Table
+    const invCountEl = document.getElementById('agent-invoices-count');
+    if (invCountEl) invCountEl.textContent = `${filteredInvoices.length} ${filteredInvoices.length === 1 ? 'Invoice' : 'Invoices'}`;
+
+    const invTbody = document.getElementById('agent-invoices-breakdown-tbody');
+    if (invTbody) {
+      if (filteredInvoices.length === 0) {
+        invTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:1.25rem; color:#64748b;">No company bills found for this agent in the selected period.</td></tr>';
+      } else {
+        invTbody.innerHTML = filteredInvoices.map(inv => `
+          <tr>
+            <td><strong style="color:#38bdf8; font-family:'JetBrains Mono',monospace;">${inv.invoice_number}</strong></td>
+            <td>${inv.invoice_date}</td>
+            <td>${inv.due_date || '-'}</td>
+            <td><strong>${inv.company_name}</strong></td>
+            <td style="color:#f87171; font-weight:700; font-family:'JetBrains Mono',monospace;">${this.formatMoney(inv.amount)}</td>
+            <td style="font-size:0.78rem; color:#94a3b8;">${inv.notes || '-'}</td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    // 3. Render Collections Table
+    const colCountEl = document.getElementById('agent-collections-count');
+    if (colCountEl) colCountEl.textContent = `${filteredCollections.length} ${filteredCollections.length === 1 ? 'Receipt' : 'Receipts'}`;
+
+    const colTbody = document.getElementById('agent-collections-breakdown-tbody');
+    if (colTbody) {
+      if (filteredCollections.length === 0) {
+        colTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:1.25rem; color:#64748b;">No collection receipts recorded by this agent in the selected period.</td></tr>';
+      } else {
+        colTbody.innerHTML = filteredCollections.map(col => `
+          <tr>
+            <td><strong style="color:#34d399; font-family:'JetBrains Mono',monospace;">${col.reference_no || 'TXN-' + col.id}</strong></td>
+            <td>${col.payment_date}</td>
+            <td><strong>${col.company_name}</strong></td>
+            <td style="color:#34d399; font-weight:700; font-family:'JetBrains Mono',monospace;">${this.formatMoney(col.amount)}</td>
+            <td><span class="metric-badge badge-blue">${col.payment_method || 'Direct'}</span></td>
+            <td style="font-size:0.78rem; color:#94a3b8;">${col.notes || '-'}</td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    // Footer actions
+    const footerActions = document.getElementById('agent-detail-footer-actions');
+    if (footerActions) {
+      footerActions.innerHTML = `
+        <button type="button" class="btn btn-amber btn-sm" onclick="app.closeModal('modal-agent-portfolio'); app.quickRewardAgent(${agent.id}, '${agent.name}', ${shareMeta.suggestedBonus || 1000});">
+          🏆 Grant Reward to ${agent.name}
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="app.closeModal('modal-agent-portfolio'); app.editAgent(${agent.id});">
+          ✏️ Edit Agent Details
+        </button>
+      `;
+    }
   }
 
   // ====================================================================
@@ -2241,6 +2558,12 @@ class CollectionApp {
     ['change', 'input'].forEach(evt => {
       document.getElementById('filter-invoice-date-from')?.addEventListener(evt, () => this.renderInvoicesTable());
       document.getElementById('filter-invoice-date-to')?.addEventListener(evt, () => this.renderInvoicesTable());
+    });
+
+    document.getElementById('agent-detail-month')?.addEventListener('change', () => this.renderAgentPortfolioBreakdown());
+    ['change', 'input'].forEach(evt => {
+      document.getElementById('agent-detail-date-from')?.addEventListener(evt, () => this.renderAgentPortfolioBreakdown());
+      document.getElementById('agent-detail-date-to')?.addEventListener(evt, () => this.renderAgentPortfolioBreakdown());
     });
 
     document.getElementById('company-search')?.addEventListener('input', () => this.renderCompaniesTable());
