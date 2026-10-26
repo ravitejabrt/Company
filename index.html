@@ -1536,14 +1536,6 @@
           <div class="agent-detail-filter-bar">
             <div class="filter-controls invoice-filter-controls" style="width: 100%; justify-content: space-between; align-items: center;">
               <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-                <!-- Monthly Filter -->
-                <div class="filter-pill-item">
-                  <label class="filter-pill-label" for="agent-detail-month">Monthly:</label>
-                  <select id="agent-detail-month" class="filter-dropdown">
-                    <option value="">📅 All Months</option>
-                  </select>
-                </div>
-
                 <!-- Date Wise Filter -->
                 <div class="filter-pill-item date-filter-pill">
                   <label class="filter-pill-label" for="agent-detail-date-from">Date Wise:</label>
@@ -1561,9 +1553,15 @@
                 </button>
               </div>
 
-              <!-- Filter Active Status Tag -->
-              <div id="agent-detail-filter-status" class="filter-status-tag">
-                🌐 All-Time Overall Portfolio
+              <!-- Right: Filter Status and Print / Save as PDF Button -->
+              <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                <div id="agent-detail-filter-status" class="filter-status-tag">
+                  🌐 All-Time Overall Portfolio
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-primary btn-print-pdf" onclick="app.printAgentPortfolio()" title="Print or Save as PDF Report">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                  Print / Save as PDF
+                </button>
               </div>
             </div>
           </div>
@@ -1684,7 +1682,13 @@
           <div style="display:flex; gap:0.5rem;" id="agent-detail-footer-actions">
             <!-- Dynamic Buttons Populated via JS -->
           </div>
-          <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-agent-portfolio')">Close</button>
+          <div style="display:flex; gap:0.5rem;">
+            <button type="button" class="btn btn-primary btn-sm" onclick="app.printAgentPortfolio()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              Print / Save as PDF
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="app.closeModal('modal-agent-portfolio')">Close</button>
+          </div>
         </div>
       </div>
     </div>

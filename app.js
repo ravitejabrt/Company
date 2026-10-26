@@ -1758,7 +1758,6 @@ class CollectionApp {
   // ====================================================================
   openAgentPortfolioModal(agentId) {
     this.currentViewingAgentId = Number(agentId);
-    this.populateAgentDetailMonthDropdown(this.currentViewingAgentId);
 
     const dateFrom = document.getElementById('agent-detail-date-from');
     const dateTo = document.getElementById('agent-detail-date-to');
@@ -1769,43 +1768,13 @@ class CollectionApp {
     this.openModal('modal-agent-portfolio');
   }
 
-  populateAgentDetailMonthDropdown(agentId) {
-    const monthSelect = document.getElementById('agent-detail-month');
-    if (!monthSelect) return;
-
-    const assignedCompanies = this.companies.filter(c => Number(c.agent_id) === Number(agentId));
-    const compIdSet = new Set(assignedCompanies.map(c => Number(c.id)));
-
-    const monthsSet = new Set();
-    (this.invoices || []).forEach(inv => {
-      if ((compIdSet.has(Number(inv.company_id)) || Number(inv.agent_id) === Number(agentId)) && inv.invoice_date && inv.invoice_date.length >= 7) {
-        monthsSet.add(inv.invoice_date.substring(0, 7));
-      }
-    });
-
-    (this.collections || []).forEach(col => {
-      if (Number(col.agent_id) === Number(agentId) && col.payment_date && col.payment_date.length >= 7) {
-        monthsSet.add(col.payment_date.substring(0, 7));
-      }
-    });
-
-    const sortedMonths = Array.from(monthsSet).sort().reverse();
-    let html = '<option value="">📅 All Months (Overall)</option>';
-    sortedMonths.forEach(ym => {
-      const [yr, mo] = ym.split('-');
-      const d = new Date(Number(yr), Number(mo) - 1, 1);
-      const name = isNaN(d) ? ym : d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-      html += `<option value="${ym}">📅 ${name}</option>`;
-    });
-
-    monthSelect.innerHTML = html;
+  printAgentPortfolio() {
+    window.print();
   }
 
   resetAgentDetailFilters() {
-    const monthSelect = document.getElementById('agent-detail-month');
     const dateFrom = document.getElementById('agent-detail-date-from');
     const dateTo = document.getElementById('agent-detail-date-to');
-    if (monthSelect) monthSelect.value = '';
     if (dateFrom) dateFrom.value = '';
     if (dateTo) dateTo.value = '';
     this.renderAgentPortfolioBreakdown();
@@ -1833,17 +1802,9 @@ class CollectionApp {
     if (contactEl) contactEl.textContent = `${agent.email || 'No email'} • ${agent.phone || 'No phone'}`;
     if (tierEl) tierEl.textContent = `Tier: ${shareMeta.suggestedTier || 'Standard'}`;
 
-    // Read Filter Values
-    const filterMonth = document.getElementById('agent-detail-month')?.value || '';
+    // Read Date Filter Values
     const filterDateFrom = document.getElementById('agent-detail-date-from')?.value || '';
     const filterDateTo = document.getElementById('agent-detail-date-to')?.value || '';
-
-    let monthLabel = '';
-    if (filterMonth) {
-      const [yr, mo] = filterMonth.split('-');
-      const d = new Date(Number(yr), Number(mo) - 1, 1);
-      monthLabel = isNaN(d) ? filterMonth : d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-    }
 
     let dateLabel = '';
     if (filterDateFrom && filterDateTo) {
@@ -1857,11 +1818,7 @@ class CollectionApp {
     // Status tag
     const statusTag = document.getElementById('agent-detail-filter-status');
     if (statusTag) {
-      if (monthLabel && dateLabel) {
-        statusTag.innerHTML = `🗓️ ${monthLabel} &bull; 📅 ${dateLabel}`;
-      } else if (monthLabel) {
-        statusTag.innerHTML = `🗓️ Month: <strong>${monthLabel}</strong>`;
-      } else if (dateLabel) {
+      if (dateLabel) {
         statusTag.innerHTML = `📅 Filter: <strong>${dateLabel}</strong>`;
       } else {
         statusTag.innerHTML = `🌐 All-Time Overall Portfolio`;
@@ -1875,7 +1832,6 @@ class CollectionApp {
     // 2. Filter Invoices for his companies
     const agentInvoices = this.invoices.filter(i => compIdSet.has(Number(i.company_id)) || Number(i.agent_id) === agentId);
     const filteredInvoices = agentInvoices.filter(inv => {
-      const matchMonth = !filterMonth || (inv.invoice_date && inv.invoice_date.startsWith(filterMonth));
       let matchDate = true;
       if (filterDateFrom && filterDateTo) {
         matchDate = inv.invoice_date >= filterDateFrom && inv.invoice_date <= filterDateTo;
@@ -1884,13 +1840,12 @@ class CollectionApp {
       } else if (!filterDateFrom && filterDateTo) {
         matchDate = inv.invoice_date <= filterDateTo;
       }
-      return matchMonth && matchDate;
+      return matchDate;
     });
 
     // 3. Filter Collections for this agent
     const agentCollections = this.collections.filter(c => Number(c.agent_id) === agentId);
     const filteredCollections = agentCollections.filter(col => {
-      const matchMonth = !filterMonth || (col.payment_date && col.payment_date.startsWith(filterMonth));
       let matchDate = true;
       if (filterDateFrom && filterDateTo) {
         matchDate = col.payment_date >= filterDateFrom && col.payment_date <= filterDateTo;
@@ -1899,11 +1854,11 @@ class CollectionApp {
       } else if (!filterDateFrom && filterDateTo) {
         matchDate = col.payment_date <= filterDateTo;
       }
-      return matchMonth && matchDate;
+      return matchDate;
     });
 
     // Compute Metrics
-    const isFiltered = Boolean(filterMonth || filterDateFrom || filterDateTo);
+    const isFiltered = Boolean(filterDateFrom || filterDateTo);
     let targetAmount = 0;
     let collectedAmount = 0;
     let pendingAmount = 0;
@@ -1937,11 +1892,10 @@ class CollectionApp {
     const subProgress = document.getElementById('agent-kpi-progress-sub');
 
     if (isFiltered) {
-      const periodName = monthLabel || dateLabel;
-      if (subTarget) subTarget.textContent = `Billed in ${periodName} (${filteredInvoices.length} Bills)`;
-      if (subCollected) subCollected.textContent = `Recovered in ${periodName} (${filteredCollections.length} Receipts)`;
-      if (subPending) subPending.textContent = `Pending for ${periodName}`;
-      if (subProgress) subProgress.textContent = `Recovery rate for ${periodName}`;
+      if (subTarget) subTarget.textContent = `Billed for ${dateLabel} (${filteredInvoices.length} Bills)`;
+      if (subCollected) subCollected.textContent = `Recovered in ${dateLabel} (${filteredCollections.length} Receipts)`;
+      if (subPending) subPending.textContent = `Pending for ${dateLabel}`;
+      if (subProgress) subProgress.textContent = `Recovery rate for ${dateLabel}`;
     } else {
       if (subTarget) subTarget.textContent = `Across ${assignedCompanies.length} Assigned Accounts`;
       if (subCollected) subCollected.textContent = `All-time total recovered (${agentCollections.length} Receipts)`;
@@ -2560,7 +2514,6 @@ class CollectionApp {
       document.getElementById('filter-invoice-date-to')?.addEventListener(evt, () => this.renderInvoicesTable());
     });
 
-    document.getElementById('agent-detail-month')?.addEventListener('change', () => this.renderAgentPortfolioBreakdown());
     ['change', 'input'].forEach(evt => {
       document.getElementById('agent-detail-date-from')?.addEventListener(evt, () => this.renderAgentPortfolioBreakdown());
       document.getElementById('agent-detail-date-to')?.addEventListener(evt, () => this.renderAgentPortfolioBreakdown());
