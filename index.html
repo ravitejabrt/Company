@@ -11,6 +11,15 @@
   <!-- Supabase Official JavaScript Client for Direct Serverless Execution -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
+    // Global State & Core Helper Functions (Works immediately even before external scripts load)
+    const DEFAULT_AGENTS = [
+      { id: 1, name: 'Alex Mercer', email: 'alex.mercer@collections.com', badgeColor: '#3b82f6', role: 'agent' },
+      { id: 2, name: 'Brenda Vance', email: 'brenda.vance@collections.com', badgeColor: '#10b981', role: 'agent' },
+      { id: 3, name: 'Carlos Mendez', email: 'carlos.m@collections.com', badgeColor: '#f59e0b', role: 'agent' },
+      { id: 4, name: 'Diana Prince', email: 'diana.p@collections.com', badgeColor: '#ec4899', role: 'agent' },
+      { id: 5, name: 'Evan Wright', email: 'evan.w@collections.com', badgeColor: '#8b5cf6', role: 'agent' }
+    ];
+
     function openSupabaseConfigModal() {
       const modal = document.getElementById('modal-supabase-config');
       if (modal) {
@@ -21,12 +30,213 @@
         if (keyInput) keyInput.value = localStorage.getItem('nexus_supabase_key') || '';
       }
     }
+
     function closeSupabaseConfigModal() {
       const modal = document.getElementById('modal-supabase-config');
       if (modal) modal.classList.remove('open');
     }
+
+    function updateDbStatusUI(connected, text) {
+      const dot = document.getElementById('db-dot');
+      const statusText = document.getElementById('db-status-text');
+      const banner = document.getElementById('auth-db-banner');
+      const authDot = document.getElementById('auth-db-dot');
+      const authTitle = document.getElementById('auth-db-title');
+      const authSub = document.getElementById('auth-db-sub');
+      const authBtn = document.getElementById('auth-db-action-btn');
+
+      if (connected) {
+        if (dot) dot.classList.add('supabase');
+        if (statusText) statusText.textContent = text || 'Supabase Cloud';
+        if (banner) {
+          banner.classList.remove('not-connected');
+          banner.classList.add('connected');
+        }
+        if (authDot) authDot.className = 'db-dot-live green';
+        if (authTitle) authTitle.textContent = '⚡ Supabase Cloud Database: Connected';
+        if (authSub) authSub.textContent = 'Live Cloud Storage Active & Synchronized';
+        if (authBtn) {
+          authBtn.className = 'btn-settings-banner';
+          authBtn.textContent = '⚙️ Settings';
+        }
+      } else {
+        if (dot) dot.classList.remove('supabase');
+        if (statusText) statusText.textContent = 'Not Connected';
+        if (banner) {
+          banner.classList.add('not-connected');
+          banner.classList.remove('connected');
+        }
+        if (authDot) authDot.className = 'db-dot-live red';
+        if (authTitle) authTitle.textContent = 'Database: Not Connected to Supabase';
+        if (authSub) authSub.textContent = 'Click to connect Supabase using Project URL & API Key';
+        if (authBtn) {
+          authBtn.className = 'btn-connect-banner';
+          authBtn.textContent = '⚡ Connect Supabase';
+        }
+      }
+    }
+
+    function setLoginRole(role) {
+      const primeTab = document.getElementById('tab-btn-prime-login');
+      const agentTab = document.getElementById('tab-btn-agent-login');
+      const primeForm = document.getElementById('form-login-prime');
+      const agentForm = document.getElementById('form-login-agent');
+
+      if (role === 'prime') {
+        if (primeTab) primeTab.classList.add('active');
+        if (agentTab) agentTab.classList.remove('active');
+        if (primeForm) primeForm.classList.add('active');
+        if (agentForm) agentForm.classList.remove('active');
+      } else {
+        if (primeTab) primeTab.classList.remove('active');
+        if (agentTab) agentTab.classList.add('active');
+        if (primeForm) primeForm.classList.remove('active');
+        if (agentForm) agentForm.classList.add('active');
+      }
+    }
+
+    function quickLoginPrime() {
+      if (window.app && typeof window.app.quickLoginPrime === 'function') {
+        window.app.quickLoginPrime();
+      } else {
+        const primeUser = { id: 0, name: 'Master Administrator', role: 'prime', email: 'admin@nexus.com' };
+        localStorage.setItem('nexus_user', JSON.stringify(primeUser));
+        location.reload();
+      }
+    }
+
+    function submitPrimeLogin(e) {
+      if (e) e.preventDefault();
+      const u = document.getElementById('prime-username')?.value || 'prime';
+      const p = document.getElementById('prime-password')?.value || 'admin123';
+      if (window.app && typeof window.app.login === 'function') {
+        window.app.login('prime', u, p);
+      } else {
+        const primeUser = { id: 0, name: 'Master Administrator', role: 'prime', email: 'admin@nexus.com' };
+        localStorage.setItem('nexus_user', JSON.stringify(primeUser));
+        location.reload();
+      }
+    }
+
+    function quickLoginAgent(agentId) {
+      if (window.app && typeof window.app.quickLoginAgent === 'function') {
+        window.app.quickLoginAgent(agentId);
+      } else {
+        const ag = DEFAULT_AGENTS.find(a => a.id === Number(agentId)) || DEFAULT_AGENTS[0];
+        localStorage.setItem('nexus_user', JSON.stringify(ag));
+        location.reload();
+      }
+    }
+
+    function submitAgentLogin(e) {
+      if (e) e.preventDefault();
+      const agentId = document.getElementById('agent-select-login')?.value;
+      const pwd = document.getElementById('agent-password')?.value || 'agent123';
+      if (!agentId) {
+        alert('Please select an agent profile');
+        return;
+      }
+      if (window.app && typeof window.app.login === 'function') {
+        window.app.login('agent', agentId, pwd);
+      } else {
+        const ag = DEFAULT_AGENTS.find(a => a.id === Number(agentId)) || DEFAULT_AGENTS[0];
+        localStorage.setItem('nexus_user', JSON.stringify(ag));
+        location.reload();
+      }
+    }
+
+    async function saveSupabaseConfig(e) {
+      if (e) e.preventDefault();
+      const urlEl = document.getElementById('cfg-supabase-url');
+      const keyEl = document.getElementById('cfg-supabase-key');
+      const url = (urlEl?.value || '').trim();
+      const key = (keyEl?.value || '').trim();
+      const btn = document.getElementById('btn-save-supabase');
+
+      if (!url || !key) {
+        alert('Please enter both Supabase Project URL and API Key');
+        return;
+      }
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Testing Connection...';
+      }
+
+      try {
+        if (!window.supabase) {
+          throw new Error('Supabase client library not loaded. Check internet connection.');
+        }
+
+        const client = window.supabase.createClient(url, key);
+        // Verify database tables
+        const { error } = await client.from('agents').select('id').limit(1);
+        if (error) {
+          throw new Error('Database Error: ' + error.message + '\n\nPlease ensure you executed the schema in Supabase SQL Editor!');
+        }
+
+        localStorage.setItem('nexus_supabase_url', url);
+        localStorage.setItem('nexus_supabase_key', key);
+
+        updateDbStatusUI(true, 'Supabase Cloud');
+        closeSupabaseConfigModal();
+        alert('⚡ Connected to Supabase Cloud Database successfully!');
+
+        if (window.app) {
+          window.app.supabaseUrl = url;
+          window.app.supabaseKey = key;
+          window.app.supabase = client;
+          await window.app.loadAgentsForAuth();
+          if (window.app.currentUser) {
+            if (window.app.currentUser.role === 'prime') await window.app.refreshAllPrimeData();
+            else await window.app.refreshAgentData();
+          }
+        } else {
+          location.reload();
+        }
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Save & Connect Database';
+        }
+      }
+    }
+
+    function disconnectSupabase() {
+      if (confirm('Disconnect Supabase and clear saved credentials?')) {
+        localStorage.removeItem('nexus_supabase_url');
+        localStorage.removeItem('nexus_supabase_key');
+        updateDbStatusUI(false, 'Not Connected');
+        closeSupabaseConfigModal();
+        if (window.app) {
+          window.app.supabase = null;
+          window.app.supabaseUrl = '';
+          window.app.supabaseKey = '';
+        }
+        alert('Supabase disconnected.');
+      }
+    }
+
+    // Expose globals
     window.openSupabaseConfigModal = openSupabaseConfigModal;
     window.closeSupabaseConfigModal = closeSupabaseConfigModal;
+    window.updateDbStatusUI = updateDbStatusUI;
+    window.setLoginRole = setLoginRole;
+    window.quickLoginPrime = quickLoginPrime;
+    window.submitPrimeLogin = submitPrimeLogin;
+    window.quickLoginAgent = quickLoginAgent;
+    window.submitAgentLogin = submitAgentLogin;
+    window.saveSupabaseConfig = saveSupabaseConfig;
+    window.disconnectSupabase = disconnectSupabase;
+
+    // Check status immediately
+    document.addEventListener('DOMContentLoaded', () => {
+      const url = localStorage.getItem('nexus_supabase_url');
+      const key = localStorage.getItem('nexus_supabase_key');
+      updateDbStatusUI(Boolean(url && key));
+    });
   </script>
 </head>
 <body>
@@ -40,7 +250,7 @@
         </div>
         <button type="button" class="btn-close" onclick="closeSupabaseConfigModal()">&times;</button>
       </div>
-      <form id="form-supabase-config" class="modal-form">
+      <form id="form-supabase-config" class="modal-form" onsubmit="saveSupabaseConfig(event)">
         <div class="auth-role-desc">
           Enter your Supabase <strong>Project URL</strong> and <strong>API Key</strong> (anon public key) from your Supabase Dashboard &rarr; Project Settings &rarr; API.
         </div>
@@ -58,7 +268,7 @@
         </div>
 
         <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
-          <button type="button" class="btn btn-outline-danger btn-sm" id="btn-disconnect-supabase" onclick="app && app.disconnectSupabase()">Clear / Reset</button>
+          <button type="button" class="btn btn-outline-danger btn-sm" id="btn-disconnect-supabase" onclick="disconnectSupabase()">Clear / Reset</button>
           <div style="display:flex; gap:0.5rem;">
             <button type="button" class="btn btn-secondary" onclick="closeSupabaseConfigModal()">Cancel</button>
             <button type="submit" class="btn btn-emerald" id="btn-save-supabase">
@@ -84,28 +294,31 @@
       </div>
 
       <!-- Supabase Cloud Connection Status Banner -->
-      <div class="auth-db-banner" id="auth-db-banner" onclick="openSupabaseConfigModal()" title="Click to view/edit Supabase credentials">
+      <div class="auth-db-banner not-connected" id="auth-db-banner" onclick="openSupabaseConfigModal()" title="Click to view/edit Supabase credentials">
         <div class="db-status-label">
-          <span class="db-dot" id="auth-db-dot"></span>
-          <span id="auth-db-status-text">Database: Local SQLite (Click to connect Supabase)</span>
+          <span class="db-dot-live red" id="auth-db-dot"></span>
+          <div>
+            <div class="status-title" id="auth-db-title">Database: Not Connected to Supabase</div>
+            <div class="status-sub" id="auth-db-sub">Click to connect Supabase using Project URL & API Key</div>
+          </div>
         </div>
-        <button type="button" class="db-action-btn" id="auth-db-action-btn" onclick="event.stopPropagation(); openSupabaseConfigModal();">
-          Connect ⚡
+        <button type="button" class="btn-connect-banner" id="auth-db-action-btn" onclick="event.stopPropagation(); openSupabaseConfigModal();">
+          ⚡ Connect Supabase
         </button>
       </div>
 
       <!-- Role Selector Tabs -->
       <div class="auth-role-tabs">
-        <button type="button" class="auth-role-btn active" id="tab-btn-prime-login" onclick="app.setLoginRole('prime')">
+        <button type="button" class="auth-role-btn active" id="tab-btn-prime-login" onclick="setLoginRole('prime')">
           👑 Prime User Login
         </button>
-        <button type="button" class="auth-role-btn" id="tab-btn-agent-login" onclick="app.setLoginRole('agent')">
+        <button type="button" class="auth-role-btn" id="tab-btn-agent-login" onclick="setLoginRole('agent')">
           👤 Agent Login
         </button>
       </div>
 
       <!-- PRIME USER LOGIN FORM -->
-      <form id="form-login-prime" class="auth-form active">
+      <form id="form-login-prime" class="auth-form active" onsubmit="submitPrimeLogin(event)">
         <div class="auth-role-desc">
           <strong>Master Administrator:</strong> Enter company bills/invoices, assign companies to agents, track progress & pie chart, and grant performance rewards.
         </div>
@@ -126,12 +339,12 @@
 
         <div class="demo-quick-login">
           <span>Demo Shortcut:</span>
-          <button type="button" class="btn-link" onclick="app.quickLoginPrime()">1-Click Prime User Access &rarr;</button>
+          <button type="button" class="btn-link" onclick="quickLoginPrime()">1-Click Prime User Access &rarr;</button>
         </div>
       </form>
 
       <!-- AGENT LOGIN FORM -->
-      <form id="form-login-agent" class="auth-form">
+      <form id="form-login-agent" class="auth-form" onsubmit="submitAgentLogin(event)">
         <div class="auth-role-desc">
           <strong>Collection Agent Portal:</strong> Access your assigned company accounts, view invoice dues, and enter recovered money collections.
         </div>
@@ -140,6 +353,11 @@
           <label for="agent-select-login">Select Your Agent Profile</label>
           <select id="agent-select-login" required>
             <option value="">-- Choose Agent --</option>
+            <option value="1">Alex Mercer (alex.mercer@collections.com)</option>
+            <option value="2">Brenda Vance (brenda.vance@collections.com)</option>
+            <option value="3">Carlos Mendez (carlos.m@collections.com)</option>
+            <option value="4">Diana Prince (diana.p@collections.com)</option>
+            <option value="5">Evan Wright (evan.w@collections.com)</option>
           </select>
         </div>
 
@@ -155,7 +373,11 @@
         <div class="demo-quick-login">
           <span>Quick Agent Access:</span>
           <div class="quick-agent-chips" id="quick-agent-login-chips">
-            <!-- Populated via JS -->
+            <button type="button" class="quick-agent-chip" onclick="quickLoginAgent(1)"><span style="color:#3b82f6">●</span> Alex</button>
+            <button type="button" class="quick-agent-chip" onclick="quickLoginAgent(2)"><span style="color:#10b981">●</span> Brenda</button>
+            <button type="button" class="quick-agent-chip" onclick="quickLoginAgent(3)"><span style="color:#f59e0b">●</span> Carlos</button>
+            <button type="button" class="quick-agent-chip" onclick="quickLoginAgent(4)"><span style="color:#ec4899">●</span> Diana</button>
+            <button type="button" class="quick-agent-chip" onclick="quickLoginAgent(5)"><span style="color:#8b5cf6">●</span> Evan</button>
           </div>
         </div>
       </form>
@@ -197,14 +419,8 @@
           <span style="font-size: 0.65rem; opacity: 0.7; margin-left: 2px;">⚙️</span>
         </button>
 
-        <div class="currency-selector">
-          <label for="currency-select">Currency:</label>
-          <select id="currency-select" class="currency-dropdown">
-            <option value="$" selected>USD ($)</option>
-            <option value="₹">INR (₹)</option>
-            <option value="€">EUR (€)</option>
-            <option value="£">GBP (£)</option>
-          </select>
+        <div class="inr-locked-badge" title="Currency is locked to Indian Rupee (₹ INR) for all accounts">
+          <span>₹</span> <strong>INR</strong>
         </div>
 
         <button class="btn btn-secondary btn-sm" id="btn-export-csv" title="Export collection data to CSV">
@@ -300,7 +516,7 @@
                 <span class="metric-title">Total Invoiced Debt</span>
                 <span class="metric-icon">🎯</span>
               </div>
-              <div class="metric-value" id="stat-total-target">$0</div>
+              <div class="metric-value" id="stat-total-target">₹0</div>
               <div class="metric-subtext">Across <span id="stat-company-count-badge">0</span> companies (<span id="stat-invoice-count-badge">0</span> bills)</div>
             </div>
 
@@ -309,7 +525,7 @@
                 <span class="metric-title">Total Recovered</span>
                 <span class="metric-icon">💰</span>
               </div>
-              <div class="metric-value" id="stat-total-collected">$0</div>
+              <div class="metric-value" id="stat-total-collected">₹0</div>
               <div class="metric-subtext progress-pill-wrap">
                 <span class="metric-badge badge-success" id="stat-collected-pct">0% Collected</span>
                 <span class="subtext-note">by active agents</span>
@@ -321,7 +537,7 @@
                 <span class="metric-title">Remaining Pending</span>
                 <span class="metric-icon">⏳</span>
               </div>
-              <div class="metric-value" id="stat-pending-amount">$0</div>
+              <div class="metric-value" id="stat-pending-amount">₹0</div>
               <div class="metric-subtext">Outstanding across all portfolios</div>
             </div>
 
@@ -339,7 +555,7 @@
                 <span class="metric-title">Rewards Awarded</span>
                 <span class="metric-icon">🏆</span>
               </div>
-              <div class="metric-value" id="stat-total-rewards">$0</div>
+              <div class="metric-value" id="stat-total-rewards">₹0</div>
               <div class="metric-subtext"><span id="stat-reward-count">0</span> performance bonuses</div>
             </div>
           </div>
@@ -353,7 +569,7 @@
               </div>
               <div class="progress-stats-summary">
                 <span class="stat-highlight" id="overall-progress-text">0% Completed</span>
-                <span class="stat-amounts" id="overall-amounts-text">$0 / $0</span>
+                <span class="stat-amounts" id="overall-amounts-text">₹0 / ₹0</span>
               </div>
             </div>
             <div class="progress-bar-container">
@@ -390,7 +606,7 @@
                   <canvas id="agentPieChart" width="340" height="340"></canvas>
                   <div class="chart-center-overlay" id="chart-center-info">
                     <div class="overlay-title">Total Collected</div>
-                    <div class="overlay-value" id="overlay-collected-val">$0</div>
+                    <div class="overlay-value" id="overlay-collected-val">₹0</div>
                     <div class="overlay-sub" id="overlay-agent-count">0 Agents</div>
                   </div>
                 </div>
@@ -707,7 +923,7 @@
               <span class="metric-title">My Assigned Portfolio</span>
               <span class="metric-icon">🎯</span>
             </div>
-            <div class="metric-value" id="agent-stat-target">$0</div>
+            <div class="metric-value" id="agent-stat-target">₹0</div>
             <div class="metric-subtext">Across <span id="agent-stat-companies-count">0</span> assigned companies</div>
           </div>
 
@@ -716,7 +932,7 @@
               <span class="metric-title">My Total Collected</span>
               <span class="metric-icon">💰</span>
             </div>
-            <div class="metric-value" id="agent-stat-collected">$0</div>
+            <div class="metric-value" id="agent-stat-collected">₹0</div>
             <div class="metric-subtext progress-pill-wrap">
               <span class="metric-badge badge-success" id="agent-stat-pct">0% Achieved</span>
             </div>
@@ -727,7 +943,7 @@
               <span class="metric-title">My Pending Dues</span>
               <span class="metric-icon">⏳</span>
             </div>
-            <div class="metric-value" id="agent-stat-pending">$0</div>
+            <div class="metric-value" id="agent-stat-pending">₹0</div>
             <div class="metric-subtext">Remaining balance to collect</div>
           </div>
 
@@ -736,7 +952,7 @@
               <span class="metric-title">My Rewards Earned</span>
               <span class="metric-icon">🏆</span>
             </div>
-            <div class="metric-value" id="agent-stat-rewards">$0</div>
+            <div class="metric-value" id="agent-stat-rewards">₹0</div>
             <div class="metric-subtext">Performance Tier: <strong id="agent-stat-tier">Bronze</strong></div>
           </div>
         </div>
@@ -749,7 +965,7 @@
             </div>
             <div class="progress-stats-summary">
               <span class="stat-highlight" id="agent-progress-text">0% Achieved</span>
-              <span class="stat-amounts" id="agent-amounts-text">$0 / $0</span>
+              <span class="stat-amounts" id="agent-amounts-text">₹0 / ₹0</span>
             </div>
           </div>
           <div class="progress-bar-container">
@@ -904,7 +1120,7 @@
               <input type="text" id="inv-number" placeholder="e.g. INV-2026-120" required>
             </div>
             <div class="form-group flex-1">
-              <label for="inv-amount">Invoice Amount <span class="currency-symbol">$</span> <span class="required">*</span></label>
+              <label for="inv-amount">Invoice Amount <span class="currency-symbol">₹</span> <span class="required">*</span></label>
               <input type="number" id="inv-amount" step="0.01" min="1" placeholder="e.g. 25000" required>
             </div>
           </div>
@@ -963,7 +1179,7 @@
               </select>
             </div>
             <div class="form-group flex-1">
-              <label for="col-amount">Collection Amount <span class="currency-symbol">$</span> <span class="required">*</span></label>
+              <label for="col-amount">Collection Amount <span class="currency-symbol">₹</span> <span class="required">*</span></label>
               <input type="number" id="col-amount" step="0.01" min="1" placeholder="e.g. 5000" required>
             </div>
           </div>
@@ -1138,7 +1354,7 @@
 
           <div class="form-row">
             <div class="form-group flex-1">
-              <label for="reward-amount">Reward Amount <span class="currency-symbol">$</span> <span class="required">*</span></label>
+              <label for="reward-amount">Reward Amount <span class="currency-symbol">₹</span> <span class="required">*</span></label>
               <input type="number" id="reward-amount" step="1" min="1" placeholder="e.g. 1000" required>
             </div>
             <div class="form-group flex-1">

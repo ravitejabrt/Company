@@ -2,7 +2,8 @@
 
 class CollectionApp {
   constructor() {
-    this.currency = localStorage.getItem('nexus_currency') || '$';
+    this.currency = '₹';
+    localStorage.setItem('nexus_currency', '₹');
     this.currentUser = JSON.parse(localStorage.getItem('nexus_user') || 'null');
     
     // Supabase Client Reference
@@ -102,24 +103,8 @@ class CollectionApp {
   }
 
   updateDbStatusUI(connected, text) {
-    const dot = document.getElementById('db-dot');
-    const statusText = document.getElementById('db-status-text');
-    const authDot = document.getElementById('auth-db-dot');
-    const authStatusText = document.getElementById('auth-db-status-text');
-    const authActionBtn = document.getElementById('auth-db-action-btn');
-
-    if (connected) {
-      if (dot) dot.classList.add('supabase');
-      if (statusText) statusText.textContent = text || 'Supabase Cloud';
-      if (authDot) authDot.classList.add('supabase');
-      if (authStatusText) authStatusText.textContent = '⚡ Supabase Cloud Database: Connected';
-      if (authActionBtn) authActionBtn.textContent = 'Change ⚙️';
-    } else {
-      if (dot) dot.classList.remove('supabase');
-      if (statusText) statusText.textContent = text || 'Local SQLite';
-      if (authDot) authDot.classList.remove('supabase');
-      if (authStatusText) authStatusText.textContent = '⚠️ Database: Click to connect Supabase (URL & Key)';
-      if (authActionBtn) authActionBtn.textContent = 'Connect ⚡';
+    if (typeof window.updateDbStatusUI === 'function') {
+      window.updateDbStatusUI(connected, text);
     }
   }
 
@@ -242,27 +227,42 @@ class CollectionApp {
   // AUTHENTICATION & SESSIONS
   // ====================================================================
   async loadAgentsForAuth() {
+    const DEFAULT_AGENTS = [
+      { id: 1, name: 'Alex Mercer', email: 'alex.mercer@collections.com', phone: '+1 (555) 234-5671', password: 'agent123', badgeColor: '#3b82f6', status: 'Active' },
+      { id: 2, name: 'Brenda Vance', email: 'brenda.vance@collections.com', phone: '+1 (555) 345-6782', password: 'agent123', badgeColor: '#10b981', status: 'Active' },
+      { id: 3, name: 'Carlos Mendez', email: 'carlos.m@collections.com', phone: '+1 (555) 456-7893', password: 'agent123', badgeColor: '#f59e0b', status: 'Active' },
+      { id: 4, name: 'Diana Prince', email: 'diana.p@collections.com', phone: '+1 (555) 567-8904', password: 'agent123', badgeColor: '#ec4899', status: 'Active' },
+      { id: 5, name: 'Evan Wright', email: 'evan.w@collections.com', phone: '+1 (555) 678-9015', password: 'agent123', badgeColor: '#8b5cf6', status: 'Active' }
+    ];
+
     try {
       if (this.supabase) {
         const { data, error } = await this.supabase
           .from('agents')
           .select('*')
           .order('name');
-        if (error) throw error;
-        this.agents = (data || []).map(a => ({
-          id: a.id,
-          name: a.name,
-          email: a.email,
-          phone: a.phone,
-          password: a.password || 'agent123',
-          badgeColor: a.badge_color || '#3b82f6',
-          status: a.status || 'Active'
-        }));
-      } else {
-        const res = await fetch('/api/auth/agents-list');
-        if (res.ok) {
-          this.agents = await res.json();
+        if (!error && data && data.length > 0) {
+          this.agents = data.map(a => ({
+            id: a.id,
+            name: a.name,
+            email: a.email,
+            phone: a.phone,
+            password: a.password || 'agent123',
+            badgeColor: a.badge_color || '#3b82f6',
+            status: a.status || 'Active'
+          }));
         }
+      } else {
+        try {
+          const res = await fetch('/api/auth/agents-list');
+          if (res.ok) {
+            this.agents = await res.json();
+          }
+        } catch {}
+      }
+
+      if (!this.agents || this.agents.length === 0) {
+        this.agents = DEFAULT_AGENTS;
       }
 
       const select = document.getElementById('agent-select-login');
@@ -274,13 +274,14 @@ class CollectionApp {
       const chipsContainer = document.getElementById('quick-agent-login-chips');
       if (chipsContainer) {
         chipsContainer.innerHTML = this.agents.map(a => `
-          <button type="button" class="quick-agent-chip" onclick="app.quickLoginAgent(${a.id})">
+          <button type="button" class="quick-agent-chip" onclick="quickLoginAgent(${a.id})">
             <span style="color:${a.badgeColor}">●</span> ${a.name.split(' ')[0]}
           </button>
         `).join('');
       }
     } catch (err) {
       console.warn('Could not load agents for login:', err.message);
+      this.agents = DEFAULT_AGENTS;
     }
   }
 
@@ -323,50 +324,43 @@ class CollectionApp {
 
   async login(role, identifier, password) {
     try {
-      if (this.supabase) {
-        // Direct Client-Side Authentication via Supabase
-        if (role === 'prime') {
-          // Verify Prime User Admin Access
-          const validUsers = ['prime', 'admin', 'admin@nexus.com'];
-          const isValidUser = validUsers.includes(String(identifier).trim().toLowerCase());
-          if (!isValidUser || password !== 'admin123') {
-            throw new Error('Invalid Prime User credentials (Use prime / admin123)');
-          }
-          this.currentUser = {
-            id: 0,
-            name: 'Master Administrator',
-            role: 'prime',
-            email: 'admin@nexus.com'
-          };
-        } else {
-          // Verify Agent Login
-          const agent = this.agents.find(a => Number(a.id) === Number(identifier));
-          if (!agent) {
-            throw new Error('Selected Agent profile not found');
-          }
-          const expectedPwd = agent.password || 'agent123';
-          if (password !== expectedPwd && password !== 'agent123') {
-            throw new Error('Incorrect agent passcode (Default: agent123)');
-          }
-          this.currentUser = {
-            id: agent.id,
-            name: agent.name,
-            email: agent.email,
-            phone: agent.phone,
-            badgeColor: agent.badgeColor,
-            role: 'agent'
-          };
+      if (role === 'prime') {
+        const validUsers = ['prime', 'admin', 'admin@nexus.com'];
+        const isValidUser = validUsers.includes(String(identifier).trim().toLowerCase());
+        if (!isValidUser || password !== 'admin123') {
+          throw new Error('Invalid Prime User credentials (Use prime / admin123)');
         }
+        this.currentUser = {
+          id: 0,
+          name: 'Master Administrator',
+          role: 'prime',
+          email: 'admin@nexus.com'
+        };
       } else {
-        // Fallback to local Node.js Server
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ role, identifier, password })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Login failed');
-        this.currentUser = data.user;
+        // Agent Login
+        const DEFAULT_AGENTS = [
+          { id: 1, name: 'Alex Mercer', email: 'alex.mercer@collections.com', phone: '+1 (555) 234-5671', badgeColor: '#3b82f6', role: 'agent' },
+          { id: 2, name: 'Brenda Vance', email: 'brenda.vance@collections.com', phone: '+1 (555) 345-6782', badgeColor: '#10b981', role: 'agent' },
+          { id: 3, name: 'Carlos Mendez', email: 'carlos.m@collections.com', phone: '+1 (555) 456-7893', badgeColor: '#f59e0b', role: 'agent' },
+          { id: 4, name: 'Diana Prince', email: 'diana.p@collections.com', phone: '+1 (555) 567-8904', badgeColor: '#ec4899', role: 'agent' },
+          { id: 5, name: 'Evan Wright', email: 'evan.w@collections.com', phone: '+1 (555) 678-9015', badgeColor: '#8b5cf6', role: 'agent' }
+        ];
+        let agent = (this.agents && this.agents.length > 0 ? this.agents : DEFAULT_AGENTS).find(a => Number(a.id) === Number(identifier));
+        if (!agent) {
+          agent = DEFAULT_AGENTS[0];
+        }
+        const expectedPwd = agent.password || 'agent123';
+        if (password !== expectedPwd && password !== 'agent123') {
+          throw new Error('Incorrect agent passcode (Default: agent123)');
+        }
+        this.currentUser = {
+          id: agent.id,
+          name: agent.name,
+          email: agent.email,
+          phone: agent.phone || '',
+          badgeColor: agent.badgeColor || '#3b82f6',
+          role: 'agent'
+        };
       }
 
       localStorage.setItem('nexus_user', JSON.stringify(this.currentUser));
@@ -445,25 +439,13 @@ class CollectionApp {
   // ====================================================================
   formatMoney(amount) {
     const num = Number(amount || 0);
-    return `${this.currency}${num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    return `₹${num.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   }
 
   setupCurrencySelector() {
-    const selector = document.getElementById('currency-select');
-    if (selector) {
-      selector.value = this.currency;
-      selector.addEventListener('change', (e) => {
-        this.currency = e.target.value;
-        localStorage.setItem('nexus_currency', this.currency);
-        document.querySelectorAll('.currency-symbol').forEach(el => el.textContent = this.currency);
-        if (this.currentUser?.role === 'prime') {
-          this.renderPrimeData();
-        } else if (this.currentUser?.role === 'agent') {
-          this.renderAgentData();
-        }
-      });
-    }
-    document.querySelectorAll('.currency-symbol').forEach(el => el.textContent = this.currency);
+    this.currency = '₹';
+    localStorage.setItem('nexus_currency', '₹');
+    document.querySelectorAll('.currency-symbol').forEach(el => el.textContent = '₹');
   }
 
   setupTabs() {
@@ -784,22 +766,79 @@ class CollectionApp {
 
         this.renderPrimeData();
       } else {
-        // Fallback to local Node.js Server
-        const [statsRes, shareRes, compRes, colRes, rewRes, invRes] = await Promise.all([
-          fetch('/api/dashboard/stats'),
-          fetch('/api/dashboard/agent-share'),
-          fetch('/api/companies'),
-          fetch('/api/collections?limit=100'),
-          fetch('/api/rewards'),
-          fetch('/api/invoices')
-        ]);
+        // Fallback to local Node.js Server or local seed data
+        try {
+          const [statsRes, shareRes, compRes, colRes, rewRes, invRes] = await Promise.all([
+            fetch('/api/dashboard/stats'),
+            fetch('/api/dashboard/agent-share'),
+            fetch('/api/companies'),
+            fetch('/api/collections?limit=100'),
+            fetch('/api/rewards'),
+            fetch('/api/invoices')
+          ]);
 
-        this.stats = await statsRes.json();
-        this.agentShare = await shareRes.json();
-        this.companies = await compRes.json();
-        this.collections = await colRes.json();
-        this.rewards = await rewRes.json();
-        this.invoices = await invRes.json();
+          this.stats = await statsRes.json();
+          this.agentShare = await shareRes.json();
+          this.companies = await compRes.json();
+          this.collections = await colRes.json();
+          this.rewards = await rewRes.json();
+          this.invoices = await invRes.json();
+        } catch {
+          // GitHub Pages / Static fallback before Supabase is connected
+          this.companies = [
+            { id: 1, name: 'Apex Logistics Inc.', category: 'Logistics', contact_person: 'Marcus Brody', contact_phone: '+1 (555) 111-2201', agent_id: 1, agent_name: 'Alex Mercer', agent_color: '#3b82f6', target_amount: 35000, collected_amount: 20000, pending_amount: 15000, progress_percent: 57.1, status: 'In Progress' },
+            { id: 2, name: 'Nexus Tech Solutions', category: 'Technology', contact_person: 'Sophia Chen', contact_phone: '+1 (555) 111-2202', agent_id: 1, agent_name: 'Alex Mercer', agent_color: '#3b82f6', target_amount: 50000, collected_amount: 35000, pending_amount: 15000, progress_percent: 70.0, status: 'In Progress' },
+            { id: 3, name: 'Global Retail Brands', category: 'Retail', contact_person: 'David Kim', contact_phone: '+1 (555) 222-3301', agent_id: 2, agent_name: 'Brenda Vance', agent_color: '#10b981', target_amount: 60000, collected_amount: 45000, pending_amount: 15000, progress_percent: 75.0, status: 'In Progress' },
+            { id: 4, name: 'Horizon Media Network', category: 'Media & Ads', contact_person: 'Rachel Green', contact_phone: '+1 (555) 222-3302', agent_id: 2, agent_name: 'Brenda Vance', agent_color: '#10b981', target_amount: 40000, collected_amount: 30000, pending_amount: 10000, progress_percent: 75.0, status: 'In Progress' },
+            { id: 5, name: 'Quantum Manufacturing', category: 'Manufacturing', contact_person: 'Heinrich Becker', contact_phone: '+1 (555) 333-4401', agent_id: 3, agent_name: 'Carlos Mendez', agent_color: '#f59e0b', target_amount: 75000, collected_amount: 50000, pending_amount: 25000, progress_percent: 66.7, status: 'In Progress' },
+            { id: 6, name: 'Vertex Financial Group', category: 'Finance', contact_person: 'Elena Rostov', contact_phone: '+1 (555) 333-4402', agent_id: 3, agent_name: 'Carlos Mendez', agent_color: '#f59e0b', target_amount: 25000, collected_amount: 15000, pending_amount: 10000, progress_percent: 60.0, status: 'In Progress' },
+            { id: 7, name: 'Stellar Pharma Labs', category: 'Healthcare', contact_person: 'Dr. Arthur Pendelton', contact_phone: '+1 (555) 444-5501', agent_id: 4, agent_name: 'Diana Prince', agent_color: '#ec4899', target_amount: 80000, collected_amount: 65000, pending_amount: 15000, progress_percent: 81.3, status: 'In Progress' },
+            { id: 8, name: 'BlueWave Maritime', category: 'Shipping', contact_person: 'Captain Nathan Ortiz', contact_phone: '+1 (555) 444-5502', agent_id: 4, agent_name: 'Diana Prince', agent_color: '#ec4899', target_amount: 30000, collected_amount: 18000, pending_amount: 12000, progress_percent: 60.0, status: 'In Progress' },
+            { id: 9, name: 'Titan Construction Works', category: 'Infrastructure', contact_person: 'Frank Castle', contact_phone: '+1 (555) 555-6601', agent_id: 5, agent_name: 'Evan Wright', agent_color: '#8b5cf6', target_amount: 55000, collected_amount: 32000, pending_amount: 23000, progress_percent: 58.2, status: 'In Progress' },
+            { id: 10, name: 'Aurora Clean Energy', category: 'Renewables', contact_person: 'Dr. Lisa Wong', contact_phone: '+1 (555) 555-6602', agent_id: 5, agent_name: 'Evan Wright', agent_color: '#8b5cf6', target_amount: 45000, collected_amount: 25000, pending_amount: 20000, progress_percent: 55.6, status: 'In Progress' }
+          ];
+
+          this.invoices = [
+            { id: 1, invoice_number: 'INV-2026-101', invoice_date: '2026-10-01', due_date: '2026-10-31', company_id: 1, company_name: 'Apex Logistics Inc.', agent_id: 1, agent_name: 'Alex Mercer', agent_color: '#3b82f6', amount: 20000, notes: 'Freight dispatch batch #A1', created_by: 'Prime User' },
+            { id: 2, invoice_number: 'INV-2026-102', invoice_date: '2026-10-08', due_date: '2026-11-08', company_id: 1, company_name: 'Apex Logistics Inc.', agent_id: 1, agent_name: 'Alex Mercer', agent_color: '#3b82f6', amount: 15000, notes: 'Interstate logistics dues #B4', created_by: 'Prime User' },
+            { id: 3, invoice_number: 'INV-2026-103', invoice_date: '2026-10-02', due_date: '2026-11-02', company_id: 2, company_name: 'Nexus Tech Solutions', agent_id: 1, agent_name: 'Alex Mercer', agent_color: '#3b82f6', amount: 30000, notes: 'Enterprise annual cloud licenses', created_by: 'Prime User' },
+            { id: 4, invoice_number: 'INV-2026-104', invoice_date: '2026-10-10', due_date: '2026-11-10', company_id: 2, company_name: 'Nexus Tech Solutions', agent_id: 1, agent_name: 'Alex Mercer', agent_color: '#3b82f6', amount: 20000, notes: 'Platform security suite add-on', created_by: 'Prime User' },
+            { id: 5, invoice_number: 'INV-2026-105', invoice_date: '2026-10-03', due_date: '2026-11-03', company_id: 3, company_name: 'Global Retail Brands', agent_id: 2, agent_name: 'Brenda Vance', agent_color: '#10b981', amount: 35000, notes: 'Q3 retail inventory consignment', created_by: 'Prime User' },
+            { id: 6, invoice_number: 'INV-2026-106', invoice_date: '2026-10-12', due_date: '2026-11-12', company_id: 3, company_name: 'Global Retail Brands', agent_id: 2, agent_name: 'Brenda Vance', agent_color: '#10b981', amount: 25000, notes: 'Store fixture lines credit', created_by: 'Prime User' }
+          ];
+
+          this.collections = [
+            { id: 1, reference_no: 'TXN-90214', company_name: 'Apex Logistics Inc.', company_id: 1, agent_id: 1, agent_name: 'Alex Mercer', agent_color: '#3b82f6', amount: 20000, payment_date: '2026-10-12', payment_method: 'Bank Transfer', recorded_by: 'Agent: Alex Mercer' },
+            { id: 2, reference_no: 'TXN-90288', company_name: 'Nexus Tech Solutions', company_id: 2, agent_id: 1, agent_name: 'Alex Mercer', agent_color: '#3b82f6', amount: 35000, payment_date: '2026-10-18', payment_method: 'Wire Transfer', recorded_by: 'Agent: Alex Mercer' },
+            { id: 3, reference_no: 'TXN-90230', company_name: 'Global Retail Brands', company_id: 3, agent_id: 2, agent_name: 'Brenda Vance', agent_color: '#10b981', amount: 45000, payment_date: '2026-10-14', payment_method: 'Bank Transfer', recorded_by: 'Agent: Brenda Vance' }
+          ];
+
+          this.rewards = [
+            { id: 1, agent_id: 4, agent_name: 'Diana Prince', agent_color: '#ec4899', amount: 1500, reward_type: 'Top Collector Award', reason: 'Outstanding collection performance exceeding threshold', status: 'Paid', awarded_date: '2026-10-23' },
+            { id: 2, agent_id: 2, agent_name: 'Brenda Vance', agent_color: '#10b981', amount: 1000, reward_type: 'Milestone Bonus', reason: 'Achieved 75% collection milestone across assigned portfolio', status: 'Paid', awarded_date: '2026-10-22' }
+          ];
+
+          this.agentShare = [
+            { id: 4, name: 'Diana Prince', badgeColor: '#ec4899', totalCollected: 83000, assignedTarget: 110000, companyCount: 2, totalRewards: 1500, percentageOfTotal: 25.5, targetAchievementRate: 75.5, suggestedTier: 'Silver Tier', suggestedBonus: 1660, rank: 1 },
+            { id: 2, name: 'Brenda Vance', badgeColor: '#10b981', totalCollected: 75000, assignedTarget: 100000, companyCount: 2, totalRewards: 1000, percentageOfTotal: 23.1, targetAchievementRate: 75.0, suggestedTier: 'Silver Tier', suggestedBonus: 1500, rank: 2 },
+            { id: 3, name: 'Carlos Mendez', badgeColor: '#f59e0b', totalCollected: 65000, assignedTarget: 100000, companyCount: 2, totalRewards: 750, percentageOfTotal: 20.0, targetAchievementRate: 65.0, suggestedTier: 'Bronze Tier', suggestedBonus: 650, rank: 3 },
+            { id: 5, name: 'Evan Wright', badgeColor: '#8b5cf6', totalCollected: 57000, assignedTarget: 100000, companyCount: 2, totalRewards: 500, percentageOfTotal: 17.5, targetAchievementRate: 57.0, suggestedTier: 'Bronze Tier', suggestedBonus: 570, rank: 4 },
+            { id: 1, name: 'Alex Mercer', badgeColor: '#3b82f6', totalCollected: 55000, assignedTarget: 85000, companyCount: 2, totalRewards: 500, percentageOfTotal: 16.9, targetAchievementRate: 64.7, suggestedTier: 'Bronze Tier', suggestedBonus: 550, rank: 5 }
+          ];
+
+          this.stats = {
+            totalTarget: 495000,
+            totalCollected: 335000,
+            pendingAmount: 160000,
+            progressPercent: 67.7,
+            totalCompanies: 10,
+            totalInvoices: 16,
+            activeAgentsCount: 5,
+            totalRewardsDistributed: 4250,
+            rewardCount: 5,
+            topAgent: this.agentShare[0]
+          };
+        }
 
         this.renderPrimeData();
       }
@@ -1510,11 +1549,46 @@ class CollectionApp {
         this.renderAgentData();
         this.populateSelectDropdowns();
       } else {
-        // Fallback to local Node.js Server
-        const res = await fetch(`/api/agent-dashboard/${this.currentUser.id}`);
-        if (!res.ok) throw new Error('Failed to load agent profile');
-        this.agentData = await res.json();
+        // Fallback to local Node.js Server or local seed data
+        try {
+          const res = await fetch(`/api/agent-dashboard/${this.currentUser.id}`);
+          if (!res.ok) throw new Error('Failed to load agent profile');
+          this.agentData = await res.json();
+        } catch {
+          // GitHub Pages / Static fallback for logged-in agent
+          const agentId = this.currentUser.id;
+          const assignedCompanies = [
+            { id: 1, name: 'Apex Logistics Inc.', category: 'Logistics', contact_person: 'Marcus Brody', contact_phone: '+1 (555) 111-2201', target_amount: 35000, collected_amount: 20000, pending_amount: 15000, progress_percent: 57.1, status: 'In Progress' },
+            { id: 2, name: 'Nexus Tech Solutions', category: 'Technology', contact_person: 'Sophia Chen', contact_phone: '+1 (555) 111-2202', target_amount: 50000, collected_amount: 35000, pending_amount: 15000, progress_percent: 70.0, status: 'In Progress' }
+          ];
+          const assignedInvoices = [
+            { id: 1, invoice_number: 'INV-2026-101', invoice_date: '2026-10-01', due_date: '2026-10-31', company_name: 'Apex Logistics Inc.', amount: 20000, notes: 'Freight dispatch batch #A1' },
+            { id: 2, invoice_number: 'INV-2026-102', invoice_date: '2026-10-08', due_date: '2026-11-08', company_name: 'Apex Logistics Inc.', amount: 15000, notes: 'Interstate logistics dues #B4' },
+            { id: 3, invoice_number: 'INV-2026-103', invoice_date: '2026-10-02', due_date: '2026-11-02', company_name: 'Nexus Tech Solutions', amount: 30000, notes: 'Enterprise annual cloud licenses' }
+          ];
+          const assignedCollections = [
+            { id: 1, reference_no: 'TXN-90214', company_name: 'Apex Logistics Inc.', amount: 20000, payment_date: '2026-10-12', payment_method: 'Bank Transfer', notes: 'First installment cleared' },
+            { id: 2, reference_no: 'TXN-90288', company_name: 'Nexus Tech Solutions', amount: 35000, payment_date: '2026-10-18', payment_method: 'Wire Transfer', notes: 'Enterprise tranche #1' }
+          ];
+          this.agentData = {
+            stats: {
+              totalTarget: 85000,
+              totalCollected: 55000,
+              pendingAmount: 30000,
+              progressPercent: 64.7,
+              assignedCompanyCount: 2,
+              totalRewards: 500,
+              suggestedTier: 'Bronze Tier (1% Bonus)'
+            },
+            companies: assignedCompanies,
+            invoices: assignedInvoices,
+            collections: assignedCollections,
+            rewards: [{ id: 1, awarded_date: '2026-10-24', reward_type: 'Spot Reward', amount: 500, reason: 'Prompt recovery on Apex Logistics', status: 'Awarded' }]
+          };
+          this.companies = assignedCompanies.map(c => ({ ...c, agent_id: agentId, agent_name: this.currentUser.name }));
+        }
         this.renderAgentData();
+        this.populateSelectDropdowns();
       }
     } catch (err) {
       console.error('Error refreshing agent portal:', err);
