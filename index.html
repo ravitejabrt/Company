@@ -744,18 +744,51 @@
               </div>
             </div>
 
-            <div class="table-filters-bar">
+            <div class="table-filters-bar invoice-filters-bar">
               <div class="search-input-wrap">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input type="text" id="invoice-search" placeholder="Search by invoice #, company, or agent...">
               </div>
-              <div class="filter-controls">
-                <select id="filter-invoice-company" class="filter-dropdown">
-                  <option value="">All Companies</option>
-                </select>
-                <select id="filter-invoice-agent" class="filter-dropdown">
-                  <option value="">All Assigned Agents</option>
-                </select>
+              <div class="filter-controls invoice-filter-controls">
+                <!-- Company Filter -->
+                <div class="filter-pill-item">
+                  <label class="filter-pill-label" for="filter-invoice-company">Company:</label>
+                  <select id="filter-invoice-company" class="filter-dropdown">
+                    <option value="">All Companies</option>
+                  </select>
+                </div>
+
+                <!-- Agent Filter -->
+                <div class="filter-pill-item">
+                  <label class="filter-pill-label" for="filter-invoice-agent">Agent:</label>
+                  <select id="filter-invoice-agent" class="filter-dropdown">
+                    <option value="">All Assigned Agents</option>
+                  </select>
+                </div>
+
+                <!-- Monthly Invoice Generated Filter -->
+                <div class="filter-pill-item">
+                  <label class="filter-pill-label" for="filter-invoice-month">Monthly:</label>
+                  <select id="filter-invoice-month" class="filter-dropdown">
+                    <option value="">📅 All Months</option>
+                  </select>
+                </div>
+
+                <!-- Date Wise Invoice Generated Filter -->
+                <div class="filter-pill-item date-filter-pill">
+                  <label class="filter-pill-label" for="filter-invoice-date-from">Date Wise:</label>
+                  <div class="date-filter-inputs">
+                    <input type="date" id="filter-invoice-date-from" class="filter-date" title="Specific Invoice Date or From Date">
+                    <span class="date-range-sep">to</span>
+                    <input type="date" id="filter-invoice-date-to" class="filter-date" title="To Date (Optional range for period)">
+                  </div>
+                </div>
+
+                <!-- Reset All Invoice Filters -->
+                <button type="button" id="btn-reset-invoice-filters" class="btn-reset-filters" title="Reset all invoice filters" onclick="app.resetInvoiceFilters()">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                  Reset
+                </button>
               </div>
             </div>
 

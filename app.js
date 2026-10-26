@@ -1312,14 +1312,45 @@ class CollectionApp {
     const search = (document.getElementById('invoice-search')?.value || '').toLowerCase();
     const filterCompany = document.getElementById('filter-invoice-company')?.value || '';
     const filterAgent = document.getElementById('filter-invoice-agent')?.value || '';
+    const filterMonth = document.getElementById('filter-invoice-month')?.value || '';
+    const filterDateFrom = document.getElementById('filter-invoice-date-from')?.value || '';
+    const filterDateTo = document.getElementById('filter-invoice-date-to')?.value || '';
+
+    let monthLabel = '';
+    if (filterMonth) {
+      const [yr, mo] = filterMonth.split('-');
+      const d = new Date(Number(yr), Number(mo) - 1, 1);
+      monthLabel = isNaN(d) ? filterMonth : d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    }
+
+    let dateLabel = '';
+    if (filterDateFrom && filterDateTo) {
+      dateLabel = `${filterDateFrom} to ${filterDateTo}`;
+    } else if (filterDateFrom) {
+      dateLabel = `Date: ${filterDateFrom}`;
+    } else if (filterDateTo) {
+      dateLabel = `Up to: ${filterDateTo}`;
+    }
 
     const filtered = this.invoices.filter(inv => {
-      const matchSearch = inv.invoice_number.toLowerCase().includes(search) ||
+      const matchSearch = !search ||
+                          inv.invoice_number.toLowerCase().includes(search) ||
                           inv.company_name.toLowerCase().includes(search) ||
                           (inv.agent_name && inv.agent_name.toLowerCase().includes(search));
       const matchCompany = !filterCompany || String(inv.company_id) === filterCompany;
       const matchAgent = !filterAgent || String(inv.agent_id) === filterAgent;
-      return matchSearch && matchCompany && matchAgent;
+      const matchMonth = !filterMonth || (inv.invoice_date && inv.invoice_date.startsWith(filterMonth));
+
+      let matchDate = true;
+      if (filterDateFrom && filterDateTo) {
+        matchDate = inv.invoice_date >= filterDateFrom && inv.invoice_date <= filterDateTo;
+      } else if (filterDateFrom && !filterDateTo) {
+        matchDate = inv.invoice_date === filterDateFrom;
+      } else if (!filterDateFrom && filterDateTo) {
+        matchDate = inv.invoice_date <= filterDateTo;
+      }
+
+      return matchSearch && matchCompany && matchAgent && matchMonth && matchDate;
     });
 
     // Compute dynamic totals
@@ -1330,6 +1361,11 @@ class CollectionApp {
     const selectedCompany = filterCompany ? this.companies.find(c => String(c.id) === String(filterCompany)) : null;
     const selectedAgent = filterAgent ? (this.agentShare.find(a => String(a.id) === String(filterAgent)) || this.agents.find(a => String(a.id) === String(filterAgent))) : null;
 
+    const filterBadgesHtml = `
+      ${monthLabel ? `<span class="metric-badge badge-blue">🗓️ ${monthLabel}</span>` : ''}
+      ${dateLabel ? `<span class="metric-badge badge-purple">📅 ${dateLabel}</span>` : ''}
+    `;
+
     // Render Dynamic Summary Card (Total Invoices & Total Bill Amount)
     if (summaryCard) {
       if (selectedCompany && selectedAgent) {
@@ -1339,6 +1375,7 @@ class CollectionApp {
               <span class="icon">🏢</span>
               <span>${selectedCompany.name}</span>
               <span class="metric-badge badge-blue">Category: ${selectedCompany.category || 'General'}</span>
+              ${filterBadgesHtml}
             </div>
             <div class="invoice-summary-subtitle">
               <span>👤 Assigned Agent: <strong style="color:#38bdf8">${selectedAgent.name}</strong></span>
@@ -1372,6 +1409,7 @@ class CollectionApp {
               <span class="icon">🏢</span>
               <span>${selectedCompany.name}</span>
               <span class="metric-badge badge-blue">Category: ${selectedCompany.category || 'General'}</span>
+              ${filterBadgesHtml}
             </div>
             <div class="invoice-summary-subtitle">
               <span>👤 Assigned Collector: <strong style="color:#38bdf8">${selectedCompany.agent_name || 'Unassigned'}</strong></span>
@@ -1406,6 +1444,7 @@ class CollectionApp {
               <span class="icon">👤</span>
               <span>Agent Invoicing: ${selectedAgent.name}</span>
               <span class="metric-badge badge-green">Assigned Agent</span>
+              ${filterBadgesHtml}
             </div>
             <div class="invoice-summary-subtitle">
               <span>🏢 Managing: <strong style="color:#38bdf8">${assignedCompaniesCount} Assigned Companies</strong></span>
@@ -1445,6 +1484,7 @@ class CollectionApp {
               <span class="icon">📊</span>
               <span>All Company Bills & Invoices Registry</span>
               <span class="metric-badge badge-purple">Prime Overview</span>
+              ${filterBadgesHtml}
             </div>
             <div class="invoice-summary-subtitle">
               <span>Tracking <strong>${this.companies.length} Companies</strong> across <strong>${this.agents.length} Collection Agents</strong></span>
@@ -1482,6 +1522,12 @@ class CollectionApp {
       } else if (selectedAgent) {
         selectionLabel = `AGENT ${selectedAgent.name.toUpperCase()} TOTAL`;
       }
+      if (monthLabel) {
+        selectionLabel += ` [${monthLabel.toUpperCase()}]`;
+      }
+      if (dateLabel) {
+        selectionLabel += ` [${dateLabel.toUpperCase()}]`;
+      }
 
       tfoot.innerHTML = `
         <tr class="table-total-row">
@@ -1507,7 +1553,13 @@ class CollectionApp {
       if (selectedAgent) {
         contextHtml += ` assigned to <strong style="color:#38bdf8;">${selectedAgent.name}</strong>`;
       }
-      if (!selectedCompany && !selectedAgent) {
+      if (monthLabel) {
+        contextHtml += ` generated in <strong style="color:#38bdf8;">${monthLabel}</strong>`;
+      }
+      if (dateLabel) {
+        contextHtml += ` for <strong style="color:#c084fc;">${dateLabel}</strong>`;
+      }
+      if (!selectedCompany && !selectedAgent && !monthLabel && !dateLabel) {
         contextHtml += ` across all accounts`;
       }
 
@@ -2133,12 +2185,63 @@ class CollectionApp {
         this.companies.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
       if (cur) filterInvComp.value = cur;
     }
+
+    // 5. Monthly invoice generated filter in invoice tab
+    const filterInvMonth = document.getElementById('filter-invoice-month');
+    if (filterInvMonth) {
+      const curMonth = filterInvMonth.value;
+      const monthMap = new Map();
+      (this.invoices || []).forEach(inv => {
+        if (inv.invoice_date && inv.invoice_date.length >= 7) {
+          const ym = inv.invoice_date.substring(0, 7);
+          monthMap.set(ym, (monthMap.get(ym) || 0) + 1);
+        }
+      });
+      const sortedYm = Array.from(monthMap.keys()).sort().reverse();
+      
+      let monthOpts = '<option value="">📅 All Months</option>';
+      sortedYm.forEach(ym => {
+        const [yr, mo] = ym.split('-');
+        const dateObj = new Date(Number(yr), Number(mo) - 1, 1);
+        const monthName = isNaN(dateObj) ? ym : dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+        const count = monthMap.get(ym);
+        monthOpts += `<option value="${ym}">📅 ${monthName} (${count} ${count === 1 ? 'Bill' : 'Bills'})</option>`;
+      });
+      filterInvMonth.innerHTML = monthOpts;
+      if (curMonth && monthMap.has(curMonth)) {
+        filterInvMonth.value = curMonth;
+      }
+    }
+  }
+
+  resetInvoiceFilters() {
+    const searchInput = document.getElementById('invoice-search');
+    const compSelect = document.getElementById('filter-invoice-company');
+    const agentSelect = document.getElementById('filter-invoice-agent');
+    const monthSelect = document.getElementById('filter-invoice-month');
+    const dateFromInput = document.getElementById('filter-invoice-date-from');
+    const dateToInput = document.getElementById('filter-invoice-date-to');
+
+    if (searchInput) searchInput.value = '';
+    if (compSelect) compSelect.value = '';
+    if (agentSelect) agentSelect.value = '';
+    if (monthSelect) monthSelect.value = '';
+    if (dateFromInput) dateFromInput.value = '';
+    if (dateToInput) dateToInput.value = '';
+
+    this.renderInvoicesTable();
+    this.showToast('Invoice filters reset to default view.');
   }
 
   setupFilters() {
     document.getElementById('invoice-search')?.addEventListener('input', () => this.renderInvoicesTable());
     document.getElementById('filter-invoice-company')?.addEventListener('change', () => this.renderInvoicesTable());
     document.getElementById('filter-invoice-agent')?.addEventListener('change', () => this.renderInvoicesTable());
+    document.getElementById('filter-invoice-month')?.addEventListener('change', () => this.renderInvoicesTable());
+    ['change', 'input'].forEach(evt => {
+      document.getElementById('filter-invoice-date-from')?.addEventListener(evt, () => this.renderInvoicesTable());
+      document.getElementById('filter-invoice-date-to')?.addEventListener(evt, () => this.renderInvoicesTable());
+    });
 
     document.getElementById('company-search')?.addEventListener('input', () => this.renderCompaniesTable());
     document.getElementById('filter-company-agent')?.addEventListener('change', () => this.renderCompaniesTable());
