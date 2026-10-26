@@ -25,6 +25,12 @@ class CollectionApp {
     // Agent Portal Data
     this.agentData = null;
 
+    // Realtime & Live Sync Infrastructure
+    this.broadcastChannel = null;
+    this.realtimeChannel = null;
+    this.syncInterval = null;
+    this._syncTimeout = null;
+
     this.init();
   }
 
@@ -37,6 +43,7 @@ class CollectionApp {
     this.setupFilters();
     this.setupQuickButtons();
     this.setupSupabaseModal();
+    this.setupSyncInfrastructure();
 
     window.addEventListener('resize', () => {
       if (this.currentUser?.role === 'prime') {
@@ -78,6 +85,7 @@ class CollectionApp {
         this.supabase = window.supabase.createClient(this.supabaseUrl, this.supabaseKey);
         this.updateDbStatusUI(true, 'Supabase Cloud');
         console.log('[Supabase] Initialized direct client for:', this.supabaseUrl);
+        this.setupSupabaseRealtime();
         return true;
       } catch (err) {
         console.error('[Supabase] Initialization error:', err);
@@ -177,6 +185,7 @@ class CollectionApp {
         this.supabaseUrl = url;
         this.supabaseKey = key;
         this.supabase = testClient;
+        this.setupSupabaseRealtime();
 
         this.updateDbStatusUI(true, 'Supabase Cloud');
         this.closeModal('modal-supabase-config');
@@ -201,6 +210,133 @@ class CollectionApp {
         }
       }
     });
+  }
+
+  // ====================================================================
+  // LIVE REALTIME SYNCHRONIZATION INFRASTRUCTURE
+  // ====================================================================
+  setupSyncInfrastructure() {
+    // 1. Cross-Tab Live Synchronization via BroadcastChannel
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        this.broadcastChannel = new BroadcastChannel('nexus_collections_sync');
+        this.broadcastChannel.onmessage = (event) => {
+          if (event.data && event.data.type === 'DATA_CHANGED') {
+            this.handleLiveSync(event.data.entity);
+          }
+        };
+      } catch (e) {
+        console.warn('BroadcastChannel initialization skipped:', e);
+      }
+    }
+
+    // 2. Cross-Tab Storage Event (Fallback for browsers without BroadcastChannel)
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'nexus_sync_event') {
+        this.handleLiveSync('storage');
+      }
+    });
+
+    // 3. Tab Visibility Change (Auto-refresh on returning to tab)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && this.currentUser) {
+        this.refreshCurrentUserData(true);
+      }
+    });
+
+    // 4. Background Heartbeat Synchronization Loop (Every 8 seconds)
+    if (this.syncInterval) clearInterval(this.syncInterval);
+    this.syncInterval = setInterval(() => {
+      if (this.currentUser && document.visibilityState === 'visible') {
+        this.refreshCurrentUserData(true);
+      }
+    }, 8000);
+  }
+
+  // Subscribe to Supabase Realtime changes across all tables
+  setupSupabaseRealtime() {
+    if (!this.supabase || typeof this.supabase.channel !== 'function') return;
+    try {
+      if (this.realtimeChannel) {
+        this.supabase.removeChannel(this.realtimeChannel);
+      }
+      this.realtimeChannel = this.supabase
+        .channel('nexus-db-realtime-sync')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' }, () => this.handleLiveSync('invoices'))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'collections' }, () => this.handleLiveSync('collections'))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'companies' }, () => this.handleLiveSync('companies'))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'agents' }, () => this.handleLiveSync('agents'))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'rewards' }, () => this.handleLiveSync('rewards'))
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('[Supabase Realtime] Connected to live database events!');
+            this.setSyncStatus('⚡ Live Sync', false);
+          }
+        });
+    } catch (err) {
+      console.warn('[Realtime] Could not subscribe:', err.message);
+    }
+  }
+
+  // Broadcast sync trigger to all other open tabs/windows
+  broadcastSync(entity = 'all') {
+    try {
+      if (this.broadcastChannel) {
+        this.broadcastChannel.postMessage({ type: 'DATA_CHANGED', entity, timestamp: Date.now() });
+      }
+    } catch {}
+    try {
+      localStorage.setItem('nexus_sync_event', String(Date.now()));
+    } catch {}
+  }
+
+  // Handle incoming live sync events with debouncing
+  handleLiveSync(source = 'remote') {
+    if (this._syncTimeout) clearTimeout(this._syncTimeout);
+    this._syncTimeout = setTimeout(async () => {
+      await this.refreshCurrentUserData(true);
+    }, 250);
+  }
+
+  // Refresh current user data (Prime or Agent)
+  async refreshCurrentUserData(silent = false) {
+    if (!this.currentUser) return;
+    if (!silent) this.setSyncStatus('Syncing...', true);
+    try {
+      if (this.currentUser.role === 'prime') {
+        await this.refreshAllPrimeData();
+      } else {
+        await this.refreshAgentData();
+      }
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      this.setSyncStatus(`⚡ Synced ${timeStr}`, false);
+    } catch (err) {
+      console.warn('Sync refresh error:', err.message);
+      if (!silent) this.setSyncStatus('Sync Error', false);
+    }
+  }
+
+  // Synchronize all data on demand (called by sync button or after edit/entry)
+  async syncAllData() {
+    this.broadcastSync();
+    await this.refreshCurrentUserData(false);
+  }
+
+  async syncNow() {
+    this.showToast('Synchronizing all records across Prime User & Agents...', 'info');
+    await this.refreshCurrentUserData(false);
+    this.showToast('⚡ All records, company dues, and agent targets synchronized!');
+  }
+
+  setSyncStatus(text, spinning = false) {
+    const textEl = document.getElementById('sync-status-text');
+    const iconEl = document.getElementById('sync-icon');
+    if (textEl) textEl.textContent = text;
+    if (iconEl) {
+      if (spinning) iconEl.classList.add('spinning');
+      else iconEl.classList.remove('spinning');
+    }
   }
 
   async checkDatabaseStatus() {
@@ -1408,8 +1544,11 @@ class CollectionApp {
         <td style="color:#f87171; font-weight:800; font-family:'JetBrains Mono',monospace;">${this.formatMoney(inv.amount)}</td>
         <td style="max-width: 220px; color:#94a3b8; font-size:0.78rem;">${inv.notes || '-'}</td>
         <td><span class="metric-badge badge-purple">${inv.created_by || 'Prime User'}</span></td>
-        <td>
-          <button class="btn btn-sm btn-outline-danger" onclick="app.deleteInvoice(${inv.id})" title="Delete Invoice">
+        <td style="white-space:nowrap;">
+          <button class="btn btn-sm btn-outline-primary" onclick="app.editInvoice(${inv.id})" title="Edit Company Bill / Invoice" style="margin-right:4px; padding:0.25rem 0.5rem; font-size:0.75rem;">
+            ✏️ Edit
+          </button>
+          <button class="btn btn-sm btn-outline-danger" onclick="app.deleteInvoice(${inv.id})" title="Delete Invoice" style="padding:0.25rem 0.5rem; font-size:0.75rem;">
             &times;
           </button>
         </td>
@@ -1639,8 +1778,11 @@ class CollectionApp {
         <td><span class="metric-badge badge-info">${c.payment_method}</span></td>
         <td><span class="metric-badge badge-purple">${c.recorded_by || 'Prime User'}</span></td>
         <td style="max-width: 200px; color:#94a3b8; font-size:0.78rem;">${c.notes || '-'}</td>
-        <td>
-          <button class="btn btn-sm btn-outline-danger" onclick="app.deleteCollection(${c.id})" title="Delete Collection Record">
+        <td style="white-space:nowrap;">
+          <button class="btn btn-sm btn-outline-primary" onclick="app.editCollection(${c.id})" title="Edit Collection Record" style="margin-right:4px; padding:0.25rem 0.5rem; font-size:0.75rem;">
+            ✏️ Edit
+          </button>
+          <button class="btn btn-sm btn-outline-danger" onclick="app.deleteCollection(${c.id})" title="Delete Collection Record" style="padding:0.25rem 0.5rem; font-size:0.75rem;">
             &times;
           </button>
         </td>
@@ -1886,7 +2028,7 @@ class CollectionApp {
     const colTbody = document.getElementById('agent-collections-tbody');
     if (colTbody) {
       if (collections.length === 0) {
-        colTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:1.5rem; color:#64748b;">No payments entered yet. Click "+ Record Collection" to log money collected!</td></tr>';
+        colTbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:1.5rem; color:#64748b;">No payments entered yet. Click "+ Record Collection" to log money collected!</td></tr>';
       } else {
         colTbody.innerHTML = collections.map(c => `
           <tr>
@@ -1896,6 +2038,11 @@ class CollectionApp {
             <td style="color:#34d399; font-weight:700; font-family:'JetBrains Mono',monospace;">${this.formatMoney(c.amount)}</td>
             <td><span class="metric-badge badge-info">${c.payment_method}</span></td>
             <td style="color:#94a3b8; font-size:0.78rem;">${c.notes || '-'}</td>
+            <td style="white-space:nowrap;">
+              <button class="btn btn-sm btn-outline-primary" onclick="app.editCollection(${c.id})" title="Edit Collection Record" style="padding:0.25rem 0.5rem; font-size:0.75rem;">
+                ✏️ Edit
+              </button>
+            </td>
           </tr>
         `).join('');
       }
@@ -2074,9 +2221,10 @@ class CollectionApp {
       await this.login('agent', a, p);
     });
 
-    // 1. Prime User Adds Company Bill / Invoice Form
+    // 1. Prime User Adds/Edits Company Bill / Invoice Form
     document.getElementById('form-invoice')?.addEventListener('submit', async (e) => {
       e.preventDefault();
+      const editId = document.getElementById('inv-edit-id')?.value;
       const companyId = Number(document.getElementById('inv-company-select').value);
       const invoiceNumber = document.getElementById('inv-number').value.trim();
       const amount = parseFloat(document.getElementById('inv-amount').value);
@@ -2086,26 +2234,55 @@ class CollectionApp {
 
       try {
         if (this.supabase) {
-          // Direct Supabase Insert
-          const { error } = await this.supabase.from('invoices').insert([{
-            company_id: companyId,
-            invoice_number: invoiceNumber,
-            invoice_date: invoiceDate,
-            due_date: dueDate,
-            amount,
-            notes,
-            created_by: 'Prime User'
-          }]);
-          if (error) throw new Error(error.message);
+          if (editId) {
+            const oldInv = this.invoices.find(i => Number(i.id) === Number(editId));
+            const oldCompanyId = oldInv ? Number(oldInv.company_id) : null;
 
-          // Update company target_amount in database
-          const { data: invList } = await this.supabase.from('invoices').select('amount').eq('company_id', companyId);
-          const newTarget = (invList || []).reduce((s, i) => s + Number(i.amount || 0), 0);
-          await this.supabase.from('companies').update({ target_amount: newTarget }).eq('id', companyId);
+            const { error } = await this.supabase.from('invoices').update({
+              company_id: companyId,
+              invoice_number: invoiceNumber,
+              invoice_date: invoiceDate,
+              due_date: dueDate,
+              amount,
+              notes
+            }).eq('id', editId);
+            if (error) throw new Error(error.message);
+
+            // Update new company target_amount in database
+            const { data: invList } = await this.supabase.from('invoices').select('amount').eq('company_id', companyId);
+            const newTarget = (invList || []).reduce((s, i) => s + Number(i.amount || 0), 0);
+            await this.supabase.from('companies').update({ target_amount: newTarget }).eq('id', companyId);
+
+            // If company changed, also update old company target
+            if (oldCompanyId && oldCompanyId !== companyId) {
+              const { data: oldInvList } = await this.supabase.from('invoices').select('amount').eq('company_id', oldCompanyId);
+              const oldTarget = (oldInvList || []).reduce((s, i) => s + Number(i.amount || 0), 0);
+              await this.supabase.from('companies').update({ target_amount: oldTarget }).eq('id', oldCompanyId);
+            }
+          } else {
+            // Direct Supabase Insert
+            const { error } = await this.supabase.from('invoices').insert([{
+              company_id: companyId,
+              invoice_number: invoiceNumber,
+              invoice_date: invoiceDate,
+              due_date: dueDate,
+              amount,
+              notes,
+              created_by: 'Prime User'
+            }]);
+            if (error) throw new Error(error.message);
+
+            // Update company target_amount in database
+            const { data: invList } = await this.supabase.from('invoices').select('amount').eq('company_id', companyId);
+            const newTarget = (invList || []).reduce((s, i) => s + Number(i.amount || 0), 0);
+            await this.supabase.from('companies').update({ target_amount: newTarget }).eq('id', companyId);
+          }
         } else {
           // Local Node.js REST
-          const res = await fetch('/api/invoices', {
-            method: 'POST',
+          const url = editId ? `/api/invoices/${editId}` : '/api/invoices';
+          const method = editId ? 'PUT' : 'POST';
+          const res = await fetch(url, {
+            method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               company_id: companyId,
@@ -2118,13 +2295,17 @@ class CollectionApp {
             })
           });
           const data = await res.json();
-          if (!res.ok) throw new Error(data.error || 'Failed to issue invoice');
+          if (!res.ok) throw new Error(data.error || 'Failed to save invoice');
         }
 
-        this.showToast(`Invoice ${invoiceNumber} (${this.formatMoney(amount)}) issued! Company dues updated.`);
+        this.showToast(editId ? `Invoice ${invoiceNumber} updated and synced!` : `Invoice ${invoiceNumber} (${this.formatMoney(amount)}) issued and synced!`);
         this.closeModal('modal-invoice');
         document.getElementById('form-invoice').reset();
-        await this.refreshAllPrimeData();
+        const editIdEl = document.getElementById('inv-edit-id');
+        if (editIdEl) editIdEl.value = '';
+
+        this.broadcastSync('invoices');
+        await this.syncAllData();
       } catch (err) {
         this.showToast(err.message, 'error');
       }
@@ -2133,6 +2314,7 @@ class CollectionApp {
     // 2. Record Collection Form (Agent or Prime User)
     document.getElementById('form-record-collection')?.addEventListener('submit', async (e) => {
       e.preventDefault();
+      const colEditId = document.getElementById('col-edit-id')?.value;
       const companyId = Number(document.getElementById('col-company-select').value);
       let agentId = document.getElementById('col-agent-select')?.value ? Number(document.getElementById('col-agent-select').value) : null;
       let recorder = 'Prime User';
@@ -2150,20 +2332,33 @@ class CollectionApp {
 
       try {
         if (this.supabase) {
-          // Direct Supabase Insert
-          const { error } = await this.supabase.from('collections').insert([{
-            company_id: companyId,
-            agent_id: agentId,
-            amount,
-            payment_date: paymentDate,
-            payment_method: paymentMethod,
-            reference_no: refNo,
-            notes,
-            recorded_by: recorder
-          }]);
-          if (error) throw new Error(error.message);
+          if (colEditId) {
+            const { error } = await this.supabase.from('collections').update({
+              company_id: companyId,
+              agent_id: agentId,
+              amount,
+              payment_date: paymentDate,
+              payment_method: paymentMethod,
+              reference_no: refNo,
+              notes
+            }).eq('id', colEditId);
+            if (error) throw new Error(error.message);
+          } else {
+            // Direct Supabase Insert
+            const { error } = await this.supabase.from('collections').insert([{
+              company_id: companyId,
+              agent_id: agentId,
+              amount,
+              payment_date: paymentDate,
+              payment_method: paymentMethod,
+              reference_no: refNo,
+              notes,
+              recorded_by: recorder
+            }]);
+            if (error) throw new Error(error.message);
+          }
 
-          // Update company status
+          // Update company status & collection amounts
           const { data: colList } = await this.supabase.from('collections').select('amount').eq('company_id', companyId);
           const { data: comp } = await this.supabase.from('companies').select('target_amount').eq('id', companyId).single();
           const collected = (colList || []).reduce((s, c) => s + Number(c.amount || 0), 0);
@@ -2172,8 +2367,10 @@ class CollectionApp {
           await this.supabase.from('companies').update({ status }).eq('id', companyId);
         } else {
           // Local Node.js REST
-          const res = await fetch('/api/collections', {
-            method: 'POST',
+          const url = colEditId ? `/api/collections/${colEditId}` : '/api/collections';
+          const method = colEditId ? 'PUT' : 'POST';
+          const res = await fetch(url, {
+            method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               company_id: companyId,
@@ -2190,15 +2387,14 @@ class CollectionApp {
           if (!res.ok) throw new Error(data.error || 'Failed to record collection');
         }
 
-        this.showToast(`Collection of ${this.formatMoney(amount)} successfully recorded!`);
+        this.showToast(colEditId ? 'Collection entry updated and synced!' : `Collection of ${this.formatMoney(amount)} recorded and synced!`);
         this.closeModal('modal-record-collection');
         document.getElementById('form-record-collection').reset();
+        const colEditIdEl = document.getElementById('col-edit-id');
+        if (colEditIdEl) colEditIdEl.value = '';
 
-        if (this.currentUser?.role === 'prime') {
-          await this.refreshAllPrimeData();
-        } else {
-          await this.refreshAgentData();
-        }
+        this.broadcastSync('collections');
+        await this.syncAllData();
       } catch (err) {
         this.showToast(err.message, 'error');
       }
@@ -2251,10 +2447,11 @@ class CollectionApp {
           }
         }
 
-        this.showToast(editId ? `Company "${name}" updated!` : `Company "${name}" added!`);
+        this.showToast(editId ? `Company "${name}" updated and synced!` : `Company "${name}" added and synced!`);
         this.closeModal('modal-company');
         document.getElementById('form-company').reset();
-        await this.refreshAllPrimeData();
+        this.broadcastSync('companies');
+        await this.syncAllData();
       } catch (err) {
         this.showToast(err.message, 'error');
       }
@@ -2296,11 +2493,12 @@ class CollectionApp {
           }
         }
 
-        this.showToast(editId ? `Agent "${name}" updated!` : `Agent "${name}" added!`);
+        this.showToast(editId ? `Agent "${name}" updated and synced!` : `Agent "${name}" added and synced!`);
         this.closeModal('modal-agent');
         document.getElementById('form-agent').reset();
         await this.loadAgentsForAuth();
-        await this.refreshAllPrimeData();
+        this.broadcastSync('agents');
+        await this.syncAllData();
       } catch (err) {
         this.showToast(err.message, 'error');
       }
@@ -2341,10 +2539,12 @@ class CollectionApp {
           }
         }
 
-        this.showToast(`Reward of ${this.formatMoney(amount)} granted!`);
+        const agent = this.agents.find(a => Number(a.id) === agentId) || { name: 'Agent' };
+        this.showToast(`Reward of ${this.formatMoney(amount)} granted to ${agent.name} and synced!`);
         this.closeModal('modal-reward');
         document.getElementById('form-reward').reset();
-        await this.refreshAllPrimeData();
+        this.broadcastSync('rewards');
+        await this.syncAllData();
       } catch (err) {
         this.showToast(err.message, 'error');
       }
@@ -2355,14 +2555,51 @@ class CollectionApp {
   // MODAL OPENERS & ENTITY ACTIONS
   // ====================================================================
   openAddInvoiceModal(companyId = null) {
-    document.getElementById('form-invoice').reset();
+    const form = document.getElementById('form-invoice');
+    if (form) form.reset();
+    const editIdEl = document.getElementById('inv-edit-id');
+    if (editIdEl) editIdEl.value = '';
+    const titleEl = document.getElementById('modal-invoice-title');
+    if (titleEl) titleEl.textContent = 'Add Company Bill / Invoice';
+    const btnText = document.getElementById('btn-invoice-submit-text');
+    if (btnText) btnText.textContent = 'Issue Company Bill';
+
     document.getElementById('inv-date').value = new Date().toISOString().split('T')[0];
-    document.getElementById('inv-number').value = `INV-${Date.now().toString().slice(-6)}`;
+    document.getElementById('inv-number').value = `INV-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`;
+
+    this.populateSelectDropdowns();
 
     if (companyId) {
       document.getElementById('inv-company-select').value = companyId;
       document.getElementById('inv-company-select').dispatchEvent(new Event('change'));
     }
+
+    this.openModal('modal-invoice');
+  }
+
+  editInvoice(invoiceId) {
+    const inv = this.invoices.find(i => Number(i.id) === Number(invoiceId));
+    if (!inv) return;
+
+    this.populateSelectDropdowns();
+
+    const editIdEl = document.getElementById('inv-edit-id');
+    if (editIdEl) editIdEl.value = inv.id;
+
+    const select = document.getElementById('inv-company-select');
+    if (select) select.value = inv.company_id;
+
+    document.getElementById('inv-number').value = inv.invoice_number;
+    document.getElementById('inv-amount').value = inv.amount;
+    document.getElementById('inv-date').value = inv.invoice_date;
+    document.getElementById('inv-due-date').value = inv.due_date || '';
+    document.getElementById('inv-notes').value = inv.notes || '';
+
+    const titleEl = document.getElementById('modal-invoice-title');
+    if (titleEl) titleEl.textContent = `Edit Company Bill: ${inv.invoice_number}`;
+
+    const btnText = document.getElementById('btn-invoice-submit-text');
+    if (btnText) btnText.textContent = 'Update Company Bill';
 
     this.openModal('modal-invoice');
   }
@@ -2391,7 +2628,8 @@ class CollectionApp {
         }
 
         this.showToast('Invoice deleted and company bill updated.');
-        await this.refreshAllPrimeData();
+        this.broadcastSync('invoices');
+        await this.syncAllData();
       } catch (err) {
         this.showToast(err.message || 'Failed to delete invoice', 'error');
       }
@@ -2399,7 +2637,11 @@ class CollectionApp {
   }
 
   openRecordCollectionModal(companyId = null) {
-    document.getElementById('form-record-collection').reset();
+    const form = document.getElementById('form-record-collection');
+    if (form) form.reset();
+    const colEditIdEl = document.getElementById('col-edit-id');
+    if (colEditIdEl) colEditIdEl.value = '';
+
     document.getElementById('col-date').value = new Date().toISOString().split('T')[0];
     document.getElementById('col-ref').value = `TXN-${Date.now().toString().slice(-6)}`;
 
@@ -2407,6 +2649,8 @@ class CollectionApp {
 
     const titleEl = document.getElementById('record-collection-modal-title');
     const agentGroup = document.getElementById('col-agent-select-group');
+    const btnText = document.getElementById('btn-col-submit-text');
+    if (btnText) btnText.textContent = 'Save Collection Entry';
 
     if (this.currentUser?.role === 'agent') {
       titleEl.textContent = `Record Collection (${this.currentUser.name})`;
@@ -2422,6 +2666,37 @@ class CollectionApp {
     } else {
       document.getElementById('col-company-info').textContent = 'Select a company to view remaining pending dues';
     }
+
+    this.openModal('modal-record-collection');
+  }
+
+  editCollection(collectionId) {
+    const col = this.collections.find(c => Number(c.id) === Number(collectionId)) || 
+                (this.agentData?.collections || []).find(c => Number(c.id) === Number(collectionId));
+    if (!col) return;
+
+    this.populateSelectDropdowns();
+
+    const editIdEl = document.getElementById('col-edit-id');
+    if (editIdEl) editIdEl.value = col.id;
+
+    const select = document.getElementById('col-company-select');
+    if (select) select.value = col.company_id;
+
+    const agSelect = document.getElementById('col-agent-select');
+    if (agSelect && col.agent_id) agSelect.value = col.agent_id;
+
+    document.getElementById('col-amount').value = col.amount;
+    document.getElementById('col-date').value = col.payment_date || new Date().toISOString().split('T')[0];
+    document.getElementById('col-method').value = col.payment_method || 'Bank Transfer';
+    document.getElementById('col-ref').value = col.reference_no || '';
+    document.getElementById('col-notes').value = col.notes || '';
+
+    const titleEl = document.getElementById('record-collection-modal-title');
+    if (titleEl) titleEl.textContent = `Edit Collection: ${col.reference_no || 'TXN-' + col.id}`;
+
+    const btnText = document.getElementById('btn-col-submit-text');
+    if (btnText) btnText.textContent = 'Update Collection Entry';
 
     this.openModal('modal-record-collection');
   }
@@ -2464,7 +2739,8 @@ class CollectionApp {
           if (!res.ok) throw new Error('Failed to delete company');
         }
         this.showToast(`Company "${name}" deleted.`);
-        await this.refreshAllPrimeData();
+        this.broadcastSync('companies');
+        await this.syncAllData();
       } catch (err) {
         this.showToast(err.message || 'Failed to delete company', 'error');
       }
@@ -2511,7 +2787,8 @@ class CollectionApp {
         }
         this.showToast(`Agent "${name}" deleted.`);
         await this.loadAgentsForAuth();
-        await this.refreshAllPrimeData();
+        this.broadcastSync('agents');
+        await this.syncAllData();
       } catch (err) {
         this.showToast(err.message || 'Failed to delete agent', 'error');
       }
@@ -2555,7 +2832,8 @@ class CollectionApp {
         if (!res.ok) throw new Error('Failed to update reward');
       }
       this.showToast('Reward marked as Paid!');
-      await this.refreshAllPrimeData();
+      this.broadcastSync('rewards');
+      await this.syncAllData();
     } catch (err) {
       this.showToast(err.message || 'Failed to update reward status', 'error');
     }
@@ -2572,7 +2850,8 @@ class CollectionApp {
           if (!res.ok) throw new Error('Failed to delete reward');
         }
         this.showToast('Reward deleted.');
-        await this.refreshAllPrimeData();
+        this.broadcastSync('rewards');
+        await this.syncAllData();
       } catch (err) {
         this.showToast(err.message || 'Failed to delete reward', 'error');
       }
@@ -2601,11 +2880,8 @@ class CollectionApp {
           if (!res.ok) throw new Error('Failed to delete collection');
         }
         this.showToast('Collection record deleted.');
-        if (this.currentUser?.role === 'prime') {
-          await this.refreshAllPrimeData();
-        } else {
-          await this.refreshAgentData();
-        }
+        this.broadcastSync('collections');
+        await this.syncAllData();
       } catch (err) {
         this.showToast(err.message || 'Failed to delete collection record', 'error');
       }

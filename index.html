@@ -476,6 +476,11 @@
           <span style="font-size: 0.65rem; opacity: 0.7; margin-left: 2px;">⚙️</span>
         </button>
 
+        <button class="sync-status-badge" id="sync-status-badge" onclick="app.syncNow()" title="Real-time multi-user data synchronization active. Click to refresh now.">
+          <span class="sync-icon" id="sync-icon">⚡</span>
+          <span id="sync-status-text">Live Sync</span>
+        </button>
+
         <div class="inr-locked-badge" title="Currency is locked to Indian Rupee (₹ INR) for all accounts">
           <span>₹</span> <strong>INR</strong>
         </div>
@@ -1125,6 +1130,7 @@
                   <th>Amount</th>
                   <th>Payment Method</th>
                   <th>Notes</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody id="agent-collections-tbody">
@@ -1171,11 +1177,12 @@
         <div class="modal-header">
           <div class="modal-title-wrap">
             <span class="modal-icon">🧾</span>
-            <h3>Add Company Bill / Invoice</h3>
+            <h3 id="modal-invoice-title">Add Company Bill / Invoice</h3>
           </div>
           <button class="btn-close" onclick="app.closeModal('modal-invoice')">&times;</button>
         </div>
         <form id="form-invoice" class="modal-form">
+          <input type="hidden" id="inv-edit-id">
           <div class="form-group">
             <label for="inv-company-select">Select Company <span class="required">*</span></label>
             <select id="inv-company-select" required>
@@ -1213,9 +1220,9 @@
 
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-invoice')">Cancel</button>
-            <button type="submit" class="btn btn-primary">
+            <button type="submit" class="btn btn-primary" id="btn-save-invoice">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-              Issue Company Bill
+              <span id="btn-invoice-submit-text">Issue Company Bill</span>
             </button>
           </div>
         </form>
@@ -1233,6 +1240,7 @@
           <button class="btn-close" onclick="app.closeModal('modal-record-collection')">&times;</button>
         </div>
         <form id="form-record-collection" class="modal-form">
+          <input type="hidden" id="col-edit-id">
           <div class="form-group">
             <label for="col-company-select">Select Company <span class="required">*</span></label>
             <select id="col-company-select" required>
