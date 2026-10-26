@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Corporate Collection Nexus - Multi-Role Platform</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- ================= AUTHENTICATION / LOGIN OVERLAY ================= -->
+  <div id="auth-overlay" class="auth-overlay">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <div class="brand-logo">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+        </div>
+        <h2>Nexus Collections</h2>
+        <p class="auth-subtitle">Corporate Debt Recovery & Agent Management Portal</p>
+      </div>
+
+      <!-- Role Selector Tabs -->
+      <div class="auth-role-tabs">
+        <button type="button" class="auth-role-btn active" id="tab-btn-prime-login" onclick="app.setLoginRole('prime')">
+          👑 Prime User Login
+        </button>
+        <button type="button" class="auth-role-btn" id="tab-btn-agent-login" onclick="app.setLoginRole('agent')">
+          👤 Agent Login
+        </button>
+      </div>
+
+      <!-- PRIME USER LOGIN FORM -->
+      <form id="form-login-prime" class="auth-form active">
+        <div class="auth-role-desc">
+          <strong>Master Administrator:</strong> Enter company bills/invoices, assign companies to agents, track progress & pie chart, and grant performance rewards.
+        </div>
+
+        <div class="form-group">
+          <label for="prime-username">Username or Email</label>
+          <input type="text" id="prime-username" value="prime" placeholder="prime or admin@nexus.com" required>
+        </div>
+
+        <div class="form-group">
+          <label for="prime-password">Password</label>
+          <input type="password" id="prime-password" value="admin123" placeholder="admin123" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block">
+          Login as Prime User
+        </button>
+
+        <div class="demo-quick-login">
+          <span>Demo Shortcut:</span>
+          <button type="button" class="btn-link" onclick="app.quickLoginPrime()">1-Click Prime User Access &rarr;</button>
+        </div>
+      </form>
+
+      <!-- AGENT LOGIN FORM -->
+      <form id="form-login-agent" class="auth-form">
+        <div class="auth-role-desc">
+          <strong>Collection Agent Portal:</strong> Access your assigned company accounts, view invoice dues, and enter recovered money collections.
+        </div>
+
+        <div class="form-group">
+          <label for="agent-select-login">Select Your Agent Profile</label>
+          <select id="agent-select-login" required>
+            <option value="">-- Choose Agent --</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="agent-password">Passcode / Password</label>
+          <input type="password" id="agent-password" value="agent123" placeholder="agent123" required>
+        </div>
+
+        <button type="submit" class="btn btn-emerald btn-block">
+          Login to Agent Workspace
+        </button>
+
+        <div class="demo-quick-login">
+          <span>Quick Agent Access:</span>
+          <div class="quick-agent-chips" id="quick-agent-login-chips">
+            <!-- Populated via JS -->
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= MAIN APPLICATION WRAPPER ================= -->
+  <div id="app" class="app-container" style="display: none;">
+    <!-- Top Navigation Bar -->
+    <header class="top-nav">
+      <div class="nav-brand">
+        <div class="brand-logo">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+        </div>
+        <div class="brand-title-wrap">
+          <h1 class="brand-title">Nexus Collections</h1>
+          <span class="brand-subtitle" id="portal-role-subtitle">Multi-Agent Recovery System</span>
+        </div>
+      </div>
+
+      <!-- Active User Profile Badge -->
+      <div class="prime-user-badge" id="nav-user-badge">
+        <div class="user-avatar" id="nav-user-avatar">
+          <span>👑</span>
+        </div>
+        <div class="user-meta">
+          <div class="user-role-tag" id="nav-user-role-tag">PRIME USER / ADMIN</div>
+          <div class="user-name" id="nav-user-name">Master Administrator</div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="nav-controls">
+        <div class="db-status-badge" id="db-status-badge" title="Active Database Connection">
+          <span class="db-dot" id="db-dot"></span>
+          <span id="db-status-text">SQLite</span>
+        </div>
+
+        <div class="currency-selector">
+          <label for="currency-select">Currency:</label>
+          <select id="currency-select" class="currency-dropdown">
+            <option value="$" selected>USD ($)</option>
+            <option value="₹">INR (₹)</option>
+            <option value="€">EUR (€)</option>
+            <option value="£">GBP (£)</option>
+          </select>
+        </div>
+
+        <button class="btn btn-secondary btn-sm" id="btn-export-csv" title="Export collection data to CSV">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export CSV
+        </button>
+
+        <button class="btn btn-outline btn-sm" id="btn-logout" onclick="app.logout()" title="Switch Account / Logout">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Logout
+        </button>
+      </div>
+    </header>
+
+    <!-- Quick Action Bar -->
+    <div class="quick-action-bar">
+      <div class="action-bar-label">
+        <span class="pulse-indicator"></span>
+        <strong id="action-bar-context-title">Prime User Controls:</strong> <span id="action-bar-context-desc">Quick Actions</span>
+      </div>
+
+      <!-- PRIME USER QUICK BUTTONS -->
+      <div class="action-bar-buttons" id="prime-action-buttons">
+        <button class="btn btn-primary" id="btn-open-invoice-modal">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          + Add Company Bill / Invoice
+        </button>
+        <button class="btn btn-emerald" id="btn-open-company-modal">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/></svg>
+          + Add Company
+        </button>
+        <button class="btn btn-indigo" id="btn-open-agent-modal">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+          + Add Agent
+        </button>
+        <button class="btn btn-amber" id="btn-open-reward-modal">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          + Grant Reward
+        </button>
+        <button class="btn btn-secondary" id="btn-open-record-modal-prime">
+          + Record Collection
+        </button>
+      </div>
+
+      <!-- AGENT QUICK BUTTONS -->
+      <div class="action-bar-buttons" id="agent-action-buttons" style="display: none;">
+        <button class="btn btn-emerald btn-pulse" id="btn-agent-record-collection">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          💵 Record My Collection From Company
+        </button>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs (Only visible for Prime User) -->
+    <nav class="main-tabs" id="prime-nav-tabs">
+      <button class="tab-btn active" data-tab="tab-dashboard">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Overview & Analytics
+      </button>
+      <button class="tab-btn" data-tab="tab-invoices">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Company Bills & Invoices (<span id="tab-invoice-count">16</span>)
+      </button>
+      <button class="tab-btn" data-tab="tab-companies">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/></svg>
+        Companies (<span id="tab-company-count">10</span>)
+      </button>
+      <button class="tab-btn" data-tab="tab-agents">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+        Agents Fleet (<span id="tab-agent-count">5</span>)
+      </button>
+      <button class="tab-btn" data-tab="tab-rewards">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        Rewards & Bonuses
+      </button>
+      <button class="tab-btn" data-tab="tab-transactions">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        Collections Ledger
+      </button>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+
+      <!-- ================= PRIME USER VIEW CONTAINER ================= -->
+      <div id="prime-view-container">
+
+        <!-- TAB 1: OVERVIEW & ANALYTICS -->
+        <section id="tab-dashboard" class="tab-content active">
+          <!-- Top Metrics Cards -->
+          <div class="metrics-grid">
+            <div class="metric-card card-target">
+              <div class="metric-header">
+                <span class="metric-title">Total Invoiced Debt</span>
+                <span class="metric-icon">🎯</span>
+              </div>
+              <div class="metric-value" id="stat-total-target">$0</div>
+              <div class="metric-subtext">Across <span id="stat-company-count-badge">0</span> companies (<span id="stat-invoice-count-badge">0</span> bills)</div>
+            </div>
+
+            <div class="metric-card card-collected">
+              <div class="metric-header">
+                <span class="metric-title">Total Recovered</span>
+                <span class="metric-icon">💰</span>
+              </div>
+              <div class="metric-value" id="stat-total-collected">$0</div>
+              <div class="metric-subtext progress-pill-wrap">
+                <span class="metric-badge badge-success" id="stat-collected-pct">0% Collected</span>
+                <span class="subtext-note">by active agents</span>
+              </div>
+            </div>
+
+            <div class="metric-card card-pending">
+              <div class="metric-header">
+                <span class="metric-title">Remaining Pending</span>
+                <span class="metric-icon">⏳</span>
+              </div>
+              <div class="metric-value" id="stat-pending-amount">$0</div>
+              <div class="metric-subtext">Outstanding across all portfolios</div>
+            </div>
+
+            <div class="metric-card card-agents">
+              <div class="metric-header">
+                <span class="metric-title">Active Fleet</span>
+                <span class="metric-icon">👥</span>
+              </div>
+              <div class="metric-value" id="stat-active-agents">5</div>
+              <div class="metric-subtext">Top Collector: <strong id="stat-top-agent-name">-</strong></div>
+            </div>
+
+            <div class="metric-card card-rewards">
+              <div class="metric-header">
+                <span class="metric-title">Rewards Awarded</span>
+                <span class="metric-icon">🏆</span>
+              </div>
+              <div class="metric-value" id="stat-total-rewards">$0</div>
+              <div class="metric-subtext"><span id="stat-reward-count">0</span> performance bonuses</div>
+            </div>
+          </div>
+
+          <!-- Overall Progress Bar -->
+          <div class="dashboard-panel overall-progress-panel">
+            <div class="panel-header">
+              <div class="panel-title-wrap">
+                <h3>Overall Corporate Debt Recovery Progress</h3>
+                <p class="panel-subtitle">Total recovered funds versus aggregate invoiced bills</p>
+              </div>
+              <div class="progress-stats-summary">
+                <span class="stat-highlight" id="overall-progress-text">0% Completed</span>
+                <span class="stat-amounts" id="overall-amounts-text">$0 / $0</span>
+              </div>
+            </div>
+            <div class="progress-bar-container">
+              <div class="progress-bar-track">
+                <div class="progress-bar-fill" id="overall-progress-bar" style="width: 0%;">
+                  <span class="progress-glow"></span>
+                </div>
+              </div>
+              <div class="progress-milestones">
+                <span>0% Start</span>
+                <span>25%</span>
+                <span>50% Midpoint</span>
+                <span>75% Good</span>
+                <span>100% Target Met</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pie Chart & Leaderboard -->
+          <div class="analytics-grid">
+            <!-- PIE CHART PANEL -->
+            <div class="dashboard-panel chart-panel">
+              <div class="panel-header">
+                <div>
+                  <h3>Agent Collection Share</h3>
+                  <p class="panel-subtitle">Percentage share of total money collected by each agent</p>
+                </div>
+                <div class="chart-badge">
+                  <span class="dot-live"></span> Live Share
+                </div>
+              </div>
+
+              <div class="pie-chart-wrapper">
+                <div class="pie-chart-canvas-container">
+                  <canvas id="agentPieChart" width="340" height="340"></canvas>
+                  <div class="chart-center-overlay" id="chart-center-info">
+                    <div class="overlay-title">Total Collected</div>
+                    <div class="overlay-value" id="overlay-collected-val">$0</div>
+                    <div class="overlay-sub" id="overlay-agent-count">5 Agents</div>
+                  </div>
+                </div>
+
+                <!-- Pie Chart Interactive Legend -->
+                <div class="pie-legend-container" id="pie-legend-list">
+                  <!-- Dynamically populated -->
+                </div>
+              </div>
+            </div>
+
+            <!-- LEADERBOARD PANEL -->
+            <div class="dashboard-panel leaderboard-panel">
+              <div class="panel-header">
+                <div>
+                  <h3>Agent Performance Leaderboard</h3>
+                  <p class="panel-subtitle">Ranked by recovery efficiency & suggested bonus rewards</p>
+                </div>
+                <button class="btn btn-sm btn-amber" id="btn-quick-reward">
+                  + Grant Reward
+                </button>
+              </div>
+
+              <div class="leaderboard-list" id="leaderboard-container">
+                <!-- Dynamically populated -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Recent Collections Strip -->
+          <div class="dashboard-panel">
+            <div class="panel-header">
+              <div>
+                <h3>Recent Collection Entries</h3>
+                <p class="panel-subtitle">Latest payments recorded across the agency</p>
+              </div>
+              <button class="btn btn-sm btn-secondary" onclick="app.switchTab('tab-transactions')">
+                View All History &rarr;
+              </button>
+            </div>
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Receipt / Ref</th>
+                    <th>Company</th>
+                    <th>Collector Agent</th>
+                    <th>Amount</th>
+                    <th>Payment Date</th>
+                    <th>Method</th>
+                    <th>Recorded By</th>
+                  </tr>
+                </thead>
+                <tbody id="recent-collections-tbody">
+                  <!-- Populated via JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 2: COMPANY INVOICES & BILLS (PRIME USER ENTERS BILLS) -->
+        <section id="tab-invoices" class="tab-content">
+          <div class="dashboard-panel">
+            <div class="panel-header">
+              <div>
+                <h3>Company Billing & Invoice Registry</h3>
+                <p class="panel-subtitle">Prime User enters corporate bills according to invoice number, date, and amount. These dues automatically reflect in the assigned agent's recovery target.</p>
+              </div>
+              <div class="panel-actions">
+                <button class="btn btn-primary" id="btn-add-invoice-tab">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                  + Add Company Bill / Invoice
+                </button>
+              </div>
+            </div>
+
+            <!-- Invoices Table Filters -->
+            <div class="table-filters-bar">
+              <div class="search-input-wrap">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="invoice-search" placeholder="Search by invoice #, company, or agent...">
+              </div>
+              <div class="filter-controls">
+                <select id="filter-invoice-company" class="filter-dropdown">
+                  <option value="">All Companies</option>
+                </select>
+                <select id="filter-invoice-agent" class="filter-dropdown">
+                  <option value="">All Assigned Agents</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Invoices Table -->
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Invoice #</th>
+                    <th>Invoice Date</th>
+                    <th>Due Date</th>
+                    <th>Company</th>
+                    <th>Assigned Agent</th>
+                    <th>Bill Amount</th>
+                    <th>Notes / Service</th>
+                    <th>Entered By</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="invoices-table-tbody">
+                  <!-- Populated via JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 3: COMPANIES PORTFOLIO -->
+        <section id="tab-companies" class="tab-content">
+          <div class="dashboard-panel">
+            <div class="panel-header">
+              <div>
+                <h3>Company Accounts & Debt Portfolios</h3>
+                <p class="panel-subtitle">Target amounts are calculated from invoices and automatically assigned to agents.</p>
+              </div>
+              <div class="panel-actions">
+                <button class="btn btn-emerald" id="btn-add-company-tab">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                  + Add Company
+                </button>
+              </div>
+            </div>
+
+            <div class="table-filters-bar">
+              <div class="search-input-wrap">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="company-search" placeholder="Search companies or contact persons...">
+              </div>
+              <div class="filter-controls">
+                <select id="filter-company-agent" class="filter-dropdown">
+                  <option value="">All Agents</option>
+                </select>
+                <select id="filter-company-status" class="filter-dropdown">
+                  <option value="">All Statuses</option>
+                  <option value="Pending">Pending (0%)</option>
+                  <option value="In Progress">In Progress</option>
+                  <option value="Completed">Completed (100%)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Company Name</th>
+                    <th>Sector</th>
+                    <th>Assigned Agent</th>
+                    <th>Total Invoiced</th>
+                    <th>Collected</th>
+                    <th>Pending Balance</th>
+                    <th>Progress</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="companies-table-tbody">
+                  <!-- Populated via JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 4: AGENTS FLEET -->
+        <section id="tab-agents" class="tab-content">
+          <div class="dashboard-panel">
+            <div class="panel-header">
+              <div>
+                <h3>Collection Agent Fleet</h3>
+                <p class="panel-subtitle">Manage agent accounts, assigned company bills, and rewards</p>
+              </div>
+              <div class="panel-actions">
+                <button class="btn btn-indigo" id="btn-add-agent-tab">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                  + Add Agent
+                </button>
+              </div>
+            </div>
+
+            <div class="agents-fleet-grid" id="agents-grid-container">
+              <!-- Populated via JS -->
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 5: REWARDS & BONUSES -->
+        <section id="tab-rewards" class="tab-content">
+          <div class="dashboard-panel">
+            <div class="panel-header">
+              <div>
+                <h3>Agent Performance Rewards & Bonuses</h3>
+                <p class="panel-subtitle">Prime User reward management and automated commission payout tiers</p>
+              </div>
+              <button class="btn btn-amber" id="btn-grant-reward-tab">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                + Grant Agent Reward
+              </button>
+            </div>
+
+            <!-- Reward Tiers Benchmark Cards -->
+            <div class="reward-tiers-grid">
+              <div class="tier-card tier-bronze">
+                <div class="tier-badge">🥉 Bronze</div>
+                <div class="tier-target">&ge; 50% Target Met</div>
+                <div class="tier-bonus">1.0% Bonus</div>
+                <p class="tier-desc">Baseline milestone bonus for steady collection</p>
+              </div>
+              <div class="tier-card tier-silver">
+                <div class="tier-badge">🥈 Silver</div>
+                <div class="tier-target">&ge; 70% Target Met</div>
+                <div class="tier-bonus">2.0% Bonus</div>
+                <p class="tier-desc">Accelerated tier reward for high debt recovery rates</p>
+              </div>
+              <div class="tier-card tier-gold">
+                <div class="tier-badge">🥇 Gold</div>
+                <div class="tier-target">&ge; 85% Target Met</div>
+                <div class="tier-bonus">3.5% Bonus</div>
+                <p class="tier-desc">Premium incentive for top company recovery performers</p>
+              </div>
+              <div class="tier-card tier-platinum">
+                <div class="tier-badge">💎 Platinum Elite</div>
+                <div class="tier-target">&ge; 95% Target Met</div>
+                <div class="tier-bonus">5.0% Bonus</div>
+                <p class="tier-desc">Elite trophy payout for near-complete collection clearance</p>
+              </div>
+            </div>
+
+            <div class="rewards-history-section">
+              <h4 class="section-title">Awarded Bonuses & Incentives Ledger</h4>
+              <div class="table-responsive">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Agent</th>
+                      <th>Reward Type</th>
+                      <th>Amount</th>
+                      <th>Reason / Justification</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="rewards-table-tbody">
+                    <!-- Populated via JS -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 6: COLLECTIONS LEDGER -->
+        <section id="tab-transactions" class="tab-content">
+          <div class="dashboard-panel">
+            <div class="panel-header">
+              <div>
+                <h3>Corporate Collections Audit Ledger</h3>
+                <p class="panel-subtitle">Complete chronological record of all payments entered by agents and Prime User</p>
+              </div>
+              <div class="panel-actions">
+                <button class="btn btn-primary" id="btn-record-ledger-tab">
+                  + Record Collection Entry
+                </button>
+              </div>
+            </div>
+
+            <div class="table-filters-bar">
+              <div class="search-input-wrap">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="ledger-search" placeholder="Search by receipt #, company, or agent...">
+              </div>
+              <div class="filter-controls">
+                <select id="filter-ledger-agent" class="filter-dropdown">
+                  <option value="">All Agents</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Receipt #</th>
+                    <th>Payment Date</th>
+                    <th>Company</th>
+                    <th>Collector Agent</th>
+                    <th>Amount</th>
+                    <th>Method</th>
+                    <th>Recorded By</th>
+                    <th>Notes</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="ledger-table-tbody">
+                  <!-- Populated via JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ================= AGENT PORTAL VIEW CONTAINER ================= -->
+      <div id="agent-view-container" style="display: none;">
+        <!-- Agent Hero Metrics Grid -->
+        <div class="metrics-grid">
+          <div class="metric-card card-target">
+            <div class="metric-header">
+              <span class="metric-title">My Assigned Portfolio</span>
+              <span class="metric-icon">🎯</span>
+            </div>
+            <div class="metric-value" id="agent-stat-target">$0</div>
+            <div class="metric-subtext">Across <span id="agent-stat-companies-count">0</span> assigned companies</div>
+          </div>
+
+          <div class="metric-card card-collected">
+            <div class="metric-header">
+              <span class="metric-title">My Total Collected</span>
+              <span class="metric-icon">💰</span>
+            </div>
+            <div class="metric-value" id="agent-stat-collected">$0</div>
+            <div class="metric-subtext progress-pill-wrap">
+              <span class="metric-badge badge-success" id="agent-stat-pct">0% Achieved</span>
+            </div>
+          </div>
+
+          <div class="metric-card card-pending">
+            <div class="metric-header">
+              <span class="metric-title">My Pending Dues</span>
+              <span class="metric-icon">⏳</span>
+            </div>
+            <div class="metric-value" id="agent-stat-pending">$0</div>
+            <div class="metric-subtext">Remaining balance to collect</div>
+          </div>
+
+          <div class="metric-card card-rewards">
+            <div class="metric-header">
+              <span class="metric-title">My Rewards Earned</span>
+              <span class="metric-icon">🏆</span>
+            </div>
+            <div class="metric-value" id="agent-stat-rewards">$0</div>
+            <div class="metric-subtext">Performance Tier: <strong id="agent-stat-tier">Bronze</strong></div>
+          </div>
+        </div>
+
+        <!-- Agent Personal Collection Progress Bar -->
+        <div class="dashboard-panel overall-progress-panel">
+          <div class="panel-header">
+            <div class="panel-title-wrap">
+              <h3>My Collection Recovery Goal</h3>
+              <p class="panel-subtitle">Progress tracking against corporate bills assigned to you by Prime User</p>
+            </div>
+            <div class="progress-stats-summary">
+              <span class="stat-highlight" id="agent-progress-text">0% Achieved</span>
+              <span class="stat-amounts" id="agent-amounts-text">$0 / $0</span>
+            </div>
+          </div>
+          <div class="progress-bar-container">
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill" id="agent-progress-bar" style="width: 0%;">
+                <span class="progress-glow"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Agent's Assigned Companies Table -->
+        <div class="dashboard-panel">
+          <div class="panel-header">
+            <div>
+              <h3>My Assigned Companies</h3>
+              <p class="panel-subtitle">Companies currently allocated to you by Prime User. Click "+ Collect" to log recovered money.</p>
+            </div>
+            <button class="btn btn-emerald" onclick="app.openRecordCollectionModal()">
+              + Record Collection
+            </button>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Company Name</th>
+                  <th>Industry</th>
+                  <th>Contact Person</th>
+                  <th>Phone</th>
+                  <th>Invoiced Dues</th>
+                  <th>Collected So Far</th>
+                  <th>Remaining Pending</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="agent-companies-tbody">
+                <!-- Populated via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Invoices for My Companies (Entered by Prime User) -->
+        <div class="dashboard-panel">
+          <div class="panel-header">
+            <div>
+              <h3>Invoices & Bills Issued by Prime User</h3>
+              <p class="panel-subtitle">Official company bills and payment due dates for your assigned accounts</p>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Invoice #</th>
+                  <th>Date Issued</th>
+                  <th>Due Date</th>
+                  <th>Company</th>
+                  <th>Bill Amount</th>
+                  <th>Notes / Description</th>
+                </tr>
+              </thead>
+              <tbody id="agent-invoices-tbody">
+                <!-- Populated via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- My Collection History -->
+        <div class="dashboard-panel">
+          <div class="panel-header">
+            <div>
+              <h3>My Collection History</h3>
+              <p class="panel-subtitle">All payment receipts logged by you</p>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Receipt #</th>
+                  <th>Date</th>
+                  <th>Company</th>
+                  <th>Amount</th>
+                  <th>Payment Method</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="agent-collections-tbody">
+                <!-- Populated via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- My Rewards Ledger -->
+        <div class="dashboard-panel">
+          <div class="panel-header">
+            <div>
+              <h3>My Awards & Bonuses Granted by Prime User</h3>
+              <p class="panel-subtitle">Incentives awarded to you based on your collection milestone performance</p>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Awarded Date</th>
+                  <th>Classification</th>
+                  <th>Reward Amount</th>
+                  <th>Citation / Reason</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="agent-rewards-tbody">
+                <!-- Populated via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- ================= MODALS ================= -->
+
+    <!-- MODAL 1: ADD COMPANY BILL / INVOICE (PRIME USER ONLY) -->
+    <div class="modal-backdrop" id="modal-invoice">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            <span class="modal-icon">🧾</span>
+            <h3>Add Company Bill / Invoice</h3>
+          </div>
+          <button class="btn-close" onclick="app.closeModal('modal-invoice')">&times;</button>
+        </div>
+        <form id="form-invoice" class="modal-form">
+          <div class="form-group">
+            <label for="inv-company-select">Select Company <span class="required">*</span></label>
+            <select id="inv-company-select" required>
+              <option value="">-- Choose Company --</option>
+            </select>
+            <div class="form-help" id="inv-company-agent-help">Bill amount will automatically reflect in the assigned agent's recovery target.</div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="inv-number">Invoice Number <span class="required">*</span></label>
+              <input type="text" id="inv-number" placeholder="e.g. INV-2026-120" required>
+            </div>
+            <div class="form-group flex-1">
+              <label for="inv-amount">Invoice Amount <span class="currency-symbol">$</span> <span class="required">*</span></label>
+              <input type="number" id="inv-amount" step="0.01" min="1" placeholder="e.g. 25000" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="inv-date">Invoice Date <span class="required">*</span></label>
+              <input type="date" id="inv-date" required>
+            </div>
+            <div class="form-group flex-1">
+              <label for="inv-due-date">Payment Due Date</label>
+              <input type="date" id="inv-due-date">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="inv-notes">Description / Billing Notes</label>
+            <textarea id="inv-notes" rows="2" placeholder="e.g. Q4 Machinery leasing dues, tranche #2"></textarea>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-invoice')">Cancel</button>
+            <button type="submit" class="btn btn-primary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+              Issue Company Bill
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL 2: RECORD COLLECTION (AGENT OR PRIME USER ENTERS MONEY) -->
+    <div class="modal-backdrop" id="modal-record-collection">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            <span class="modal-icon">💵</span>
+            <h3 id="record-collection-modal-title">Record Company Collection</h3>
+          </div>
+          <button class="btn-close" onclick="app.closeModal('modal-record-collection')">&times;</button>
+        </div>
+        <form id="form-record-collection" class="modal-form">
+          <div class="form-group">
+            <label for="col-company-select">Select Company <span class="required">*</span></label>
+            <select id="col-company-select" required>
+              <option value="">-- Choose Company --</option>
+            </select>
+            <div class="form-help" id="col-company-info">Select a company to view remaining pending dues</div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1" id="col-agent-select-group">
+              <label for="col-agent-select">Assigned Agent</label>
+              <select id="col-agent-select">
+                <option value="">-- Auto Assigned --</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label for="col-amount">Collection Amount <span class="currency-symbol">$</span> <span class="required">*</span></label>
+              <input type="number" id="col-amount" step="0.01" min="1" placeholder="e.g. 5000" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="col-date">Payment Date <span class="required">*</span></label>
+              <input type="date" id="col-date" required>
+            </div>
+            <div class="form-group flex-1">
+              <label for="col-method">Payment Method</label>
+              <select id="col-method">
+                <option value="Bank Transfer">Bank Transfer</option>
+                <option value="Wire Transfer">Wire Transfer</option>
+                <option value="Cheque">Cheque</option>
+                <option value="UPI/ACH">UPI / ACH</option>
+                <option value="Cash">Cash</option>
+                <option value="Corporate Card">Corporate Card</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="col-ref">Reference / Transaction Number</label>
+            <input type="text" id="col-ref" placeholder="e.g. TXN-994021">
+          </div>
+
+          <div class="form-group">
+            <label for="col-notes">Notes / Remarks</label>
+            <textarea id="col-notes" rows="2" placeholder="e.g. Cleared installment via client bank account"></textarea>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-record-collection')">Cancel</button>
+            <button type="submit" class="btn btn-emerald">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+              Save Collection Entry
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL 3: ADD / EDIT COMPANY -->
+    <div class="modal-backdrop" id="modal-company">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            <span class="modal-icon">🏢</span>
+            <h3 id="modal-company-title">Add New Company</h3>
+          </div>
+          <button class="btn-close" onclick="app.closeModal('modal-company')">&times;</button>
+        </div>
+        <form id="form-company" class="modal-form">
+          <input type="hidden" id="company-edit-id">
+          
+          <div class="form-group">
+            <label for="comp-name">Company Name <span class="required">*</span></label>
+            <input type="text" id="comp-name" placeholder="e.g. Acme Corporation" required>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="comp-category">Sector / Industry</label>
+              <input type="text" id="comp-category" placeholder="e.g. Technology, Retail, Healthcare">
+            </div>
+            <div class="form-group flex-1">
+              <label for="comp-agent-assign">Assign to Collection Agent</label>
+              <select id="comp-agent-assign">
+                <option value="">-- Choose Agent to Assign --</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="comp-contact-person">Contact Person</label>
+              <input type="text" id="comp-contact-person" placeholder="e.g. John Doe">
+            </div>
+            <div class="form-group flex-1">
+              <label for="comp-contact-phone">Contact Phone</label>
+              <input type="text" id="comp-contact-phone" placeholder="e.g. +1 (555) 000-0000">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="comp-notes">Notes / Contract Details</label>
+            <textarea id="comp-notes" rows="2" placeholder="e.g. Standard 30-day payment terms"></textarea>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-company')">Cancel</button>
+            <button type="submit" class="btn btn-emerald" id="btn-save-company">Save Company</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL 4: ADD / EDIT AGENT -->
+    <div class="modal-backdrop" id="modal-agent">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            <span class="modal-icon">👤</span>
+            <h3 id="modal-agent-title">Add New Collection Agent</h3>
+          </div>
+          <button class="btn-close" onclick="app.closeModal('modal-agent')">&times;</button>
+        </div>
+        <form id="form-agent" class="modal-form">
+          <input type="hidden" id="agent-edit-id">
+
+          <div class="form-group">
+            <label for="agent-name">Agent Full Name <span class="required">*</span></label>
+            <input type="text" id="agent-name" placeholder="e.g. Jane Smith" required>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="agent-email">Email Address <span class="required">*</span></label>
+              <input type="email" id="agent-email" placeholder="e.g. jane.smith@collections.com" required>
+            </div>
+            <div class="form-group flex-1">
+              <label for="agent-phone">Phone Number</label>
+              <input type="text" id="agent-phone" placeholder="e.g. +1 (555) 123-4567">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="agent-password-input">Agent Login Password</label>
+            <input type="text" id="agent-password-input" value="agent123" placeholder="agent123">
+          </div>
+
+          <div class="form-group">
+            <label>Badge Color Theme</label>
+            <div class="color-picker-palette">
+              <label class="color-swatch"><input type="radio" name="agent-color" value="#3b82f6" checked><span style="background:#3b82f6;"></span></label>
+              <label class="color-swatch"><input type="radio" name="agent-color" value="#10b981"><span style="background:#10b981;"></span></label>
+              <label class="color-swatch"><input type="radio" name="agent-color" value="#f59e0b"><span style="background:#f59e0b;"></span></label>
+              <label class="color-swatch"><input type="radio" name="agent-color" value="#ec4899"><span style="background:#ec4899;"></span></label>
+              <label class="color-swatch"><input type="radio" name="agent-color" value="#8b5cf6"><span style="background:#8b5cf6;"></span></label>
+              <label class="color-swatch"><input type="radio" name="agent-color" value="#06b6d4"><span style="background:#06b6d4;"></span></label>
+              <label class="color-swatch"><input type="radio" name="agent-color" value="#ef4444"><span style="background:#ef4444;"></span></label>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-agent')">Cancel</button>
+            <button type="submit" class="btn btn-indigo" id="btn-save-agent">Save Agent</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL 5: GRANT REWARD TO AGENT (PRIME USER ONLY) -->
+    <div class="modal-backdrop" id="modal-reward">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            <span class="modal-icon">🏆</span>
+            <h3>Grant Agent Reward</h3>
+          </div>
+          <button class="btn-close" onclick="app.closeModal('modal-reward')">&times;</button>
+        </div>
+        <form id="form-reward" class="modal-form">
+          <div class="form-group">
+            <label for="reward-agent-select">Select Recipient Agent <span class="required">*</span></label>
+            <select id="reward-agent-select" required>
+              <option value="">-- Choose Agent --</option>
+            </select>
+            <div class="form-help" id="reward-agent-hint">Select an agent to see their collection performance and suggested bonus</div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="reward-amount">Reward Amount <span class="currency-symbol">$</span> <span class="required">*</span></label>
+              <input type="number" id="reward-amount" step="1" min="1" placeholder="e.g. 1000" required>
+            </div>
+            <div class="form-group flex-1">
+              <label for="reward-type">Reward Classification</label>
+              <select id="reward-type">
+                <option value="Performance Bonus">Performance Bonus</option>
+                <option value="Top Collector Award">Top Collector Excellence Award</option>
+                <option value="Milestone Reward">Milestone Milestone Reward</option>
+                <option value="Commission">Commission Payout</option>
+                <option value="Spot Award">Spot Recognition Award</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="reward-status">Payout Status</label>
+              <select id="reward-status">
+                <option value="Paid">Paid Out</option>
+                <option value="Awarded">Awarded (Queued)</option>
+                <option value="Pending">Pending Approval</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label for="reward-date">Date Awarded</label>
+              <input type="date" id="reward-date">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="reward-reason">Reason / Citation <span class="required">*</span></label>
+            <textarea id="reward-reason" rows="2" placeholder="e.g. Awarded by Prime User for stellar collection performance" required></textarea>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-reward')">Cancel</button>
+            <button type="submit" class="btn btn-amber">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              Grant Reward Now
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="toast-container"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
