@@ -1,0 +1,2321 @@
+// app.js - Multi-Role Client Logic for Prime User & Agents with Direct Supabase Support & Local Fallback
+
+class CollectionApp {
+  constructor() {
+    this.currency = localStorage.getItem('nexus_currency') || '$';
+    this.currentUser = JSON.parse(localStorage.getItem('nexus_user') || 'null');
+    
+    // Supabase Client Reference
+    this.supabase = null;
+    this.supabaseUrl = '';
+    this.supabaseKey = '';
+
+    // Prime Data
+    this.stats = null;
+    this.agentShare = [];
+    this.companies = [];
+    this.agents = [];
+    this.collections = [];
+    this.rewards = [];
+    this.invoices = [];
+    this.pieSlices = [];
+    this.hoveredSliceIndex = -1;
+
+    // Agent Portal Data
+    this.agentData = null;
+
+    this.init();
+  }
+
+  async init() {
+    this.setupCurrencySelector();
+    this.setupTabs();
+    this.setupModals();
+    this.setupForms();
+    this.setupCanvasInteractivity();
+    this.setupFilters();
+    this.setupQuickButtons();
+    this.setupSupabaseModal();
+
+    window.addEventListener('resize', () => {
+      if (this.currentUser?.role === 'prime') {
+        this.drawPieChart();
+      }
+    });
+
+    // Initialize Supabase if credentials exist in localStorage or URL query
+    this.initSupabase();
+
+    await this.loadAgentsForAuth();
+    await this.checkDatabaseStatus();
+
+    if (this.currentUser) {
+      this.applyUserSession();
+    } else {
+      this.showLoginOverlay();
+    }
+  }
+
+  // ====================================================================
+  // SUPABASE CLIENT INITIALIZATION & STATUS
+  // ====================================================================
+  initSupabase() {
+    // 1. Check if Supabase keys passed via URL params: ?supabase_url=...&supabase_key=...
+    const urlParams = new URLSearchParams(window.location.search);
+    const qUrl = urlParams.get('supabase_url');
+    const qKey = urlParams.get('supabase_key');
+    if (qUrl && qKey) {
+      localStorage.setItem('nexus_supabase_url', qUrl.trim());
+      localStorage.setItem('nexus_supabase_key', qKey.trim());
+    }
+
+    this.supabaseUrl = localStorage.getItem('nexus_supabase_url') || '';
+    this.supabaseKey = localStorage.getItem('nexus_supabase_key') || '';
+
+    if (window.supabase && this.supabaseUrl && this.supabaseKey) {
+      try {
+        this.supabase = window.supabase.createClient(this.supabaseUrl, this.supabaseKey);
+        this.updateDbStatusUI(true, 'Supabase Cloud');
+        console.log('[Supabase] Initialized direct client for:', this.supabaseUrl);
+        return true;
+      } catch (err) {
+        console.error('[Supabase] Initialization error:', err);
+        this.supabase = null;
+      }
+    }
+
+    // Determine if on GitHub Pages or static host where Supabase is needed
+    const isStaticHosted = window.location.hostname.includes('github.io') ||
+      (!['localhost', '127.0.0.1'].includes(window.location.hostname) && window.location.protocol !== 'http:');
+
+    if (isStaticHosted && (!this.supabaseUrl || !this.supabaseKey)) {
+      this.updateDbStatusUI(false, 'Supabase Required');
+      // Prompt user to connect Supabase after brief animation
+      setTimeout(() => {
+        this.openSupabaseConfigModal();
+      }, 700);
+    } else {
+      this.updateDbStatusUI(false, 'Local SQLite');
+    }
+
+    return false;
+  }
+
+  updateDbStatusUI(connected, text) {
+    const dot = document.getElementById('db-dot');
+    const statusText = document.getElementById('db-status-text');
+    const authDot = document.getElementById('auth-db-dot');
+    const authStatusText = document.getElementById('auth-db-status-text');
+    const authActionBtn = document.getElementById('auth-db-action-btn');
+
+    if (connected) {
+      if (dot) dot.classList.add('supabase');
+      if (statusText) statusText.textContent = text || 'Supabase Cloud';
+      if (authDot) authDot.classList.add('supabase');
+      if (authStatusText) authStatusText.textContent = '⚡ Supabase Cloud Database: Connected';
+      if (authActionBtn) authActionBtn.textContent = 'Change ⚙️';
+    } else {
+      if (dot) dot.classList.remove('supabase');
+      if (statusText) statusText.textContent = text || 'Local SQLite';
+      if (authDot) authDot.classList.remove('supabase');
+      if (authStatusText) authStatusText.textContent = '⚠️ Database: Click to connect Supabase (URL & Key)';
+      if (authActionBtn) authActionBtn.textContent = 'Connect ⚡';
+    }
+  }
+
+  openSupabaseConfigModal() {
+    const urlInput = document.getElementById('cfg-supabase-url');
+    const keyInput = document.getElementById('cfg-supabase-key');
+    if (urlInput) urlInput.value = localStorage.getItem('nexus_supabase_url') || '';
+    if (keyInput) keyInput.value = localStorage.getItem('nexus_supabase_key') || '';
+    this.openModal('modal-supabase-config');
+  }
+
+  disconnectSupabase() {
+    if (confirm('Clear Supabase credentials and disconnect database?')) {
+      localStorage.removeItem('nexus_supabase_url');
+      localStorage.removeItem('nexus_supabase_key');
+      this.supabase = null;
+      this.supabaseUrl = '';
+      this.supabaseKey = '';
+      this.updateDbStatusUI(false, 'Disconnected');
+      this.closeModal('modal-supabase-config');
+      this.showToast('Supabase connection cleared.');
+      this.loadAgentsForAuth();
+      if (this.currentUser) {
+        if (this.currentUser.role === 'prime') this.refreshAllPrimeData();
+        else this.refreshAgentData();
+      }
+    }
+  }
+
+  setupSupabaseModal() {
+    const form = document.getElementById('form-supabase-config');
+    if (!form) return;
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const url = document.getElementById('cfg-supabase-url').value.trim();
+      const key = document.getElementById('cfg-supabase-key').value.trim();
+      const saveBtn = document.getElementById('btn-save-supabase');
+
+      if (!url || !key) {
+        this.showToast('Please provide both Project URL and API Key', 'error');
+        return;
+      }
+
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Connecting...';
+      }
+
+      try {
+        if (!window.supabase) {
+          throw new Error('Supabase client library not loaded. Check internet connection.');
+        }
+
+        const testClient = window.supabase.createClient(url, key);
+        // Test query on agents table
+        const { error } = await testClient.from('agents').select('id').limit(1);
+        if (error) {
+          throw new Error(`Database connection failed: ${error.message}. Ensure supabase_schema.sql was run in Supabase.`);
+        }
+
+        // Successfully verified connection
+        localStorage.setItem('nexus_supabase_url', url);
+        localStorage.setItem('nexus_supabase_key', key);
+        this.supabaseUrl = url;
+        this.supabaseKey = key;
+        this.supabase = testClient;
+
+        this.updateDbStatusUI(true, 'Supabase Cloud');
+        this.closeModal('modal-supabase-config');
+        this.showToast('⚡ Connected to Supabase Cloud Database successfully!');
+
+        // Reload data
+        await this.loadAgentsForAuth();
+        if (this.currentUser) {
+          if (this.currentUser.role === 'prime') {
+            await this.refreshAllPrimeData();
+          } else {
+            await this.refreshAgentData();
+          }
+        }
+      } catch (err) {
+        console.error('Supabase connection error:', err);
+        this.showToast(err.message, 'error');
+      } finally {
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save & Connect Database';
+        }
+      }
+    });
+  }
+
+  async checkDatabaseStatus() {
+    if (this.supabase) {
+      this.updateDbStatusUI(true, 'Supabase Cloud');
+      return;
+    }
+    try {
+      const res = await fetch('/api/system/status');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.supabaseConnected) {
+          this.updateDbStatusUI(true, 'Supabase Cloud');
+        } else {
+          this.updateDbStatusUI(false, 'Local SQLite');
+        }
+      }
+    } catch {
+      // Offline / Static hosting without backend
+      this.updateDbStatusUI(false, 'Supabase Required');
+    }
+  }
+
+  // ====================================================================
+  // AUTHENTICATION & SESSIONS
+  // ====================================================================
+  async loadAgentsForAuth() {
+    try {
+      if (this.supabase) {
+        const { data, error } = await this.supabase
+          .from('agents')
+          .select('*')
+          .order('name');
+        if (error) throw error;
+        this.agents = (data || []).map(a => ({
+          id: a.id,
+          name: a.name,
+          email: a.email,
+          phone: a.phone,
+          password: a.password || 'agent123',
+          badgeColor: a.badge_color || '#3b82f6',
+          status: a.status || 'Active'
+        }));
+      } else {
+        const res = await fetch('/api/auth/agents-list');
+        if (res.ok) {
+          this.agents = await res.json();
+        }
+      }
+
+      const select = document.getElementById('agent-select-login');
+      if (select) {
+        select.innerHTML = '<option value="">-- Choose Agent --</option>' +
+          this.agents.map(a => `<option value="${a.id}">${a.name} (${a.email})</option>`).join('');
+      }
+
+      const chipsContainer = document.getElementById('quick-agent-login-chips');
+      if (chipsContainer) {
+        chipsContainer.innerHTML = this.agents.map(a => `
+          <button type="button" class="quick-agent-chip" onclick="app.quickLoginAgent(${a.id})">
+            <span style="color:${a.badgeColor}">●</span> ${a.name.split(' ')[0]}
+          </button>
+        `).join('');
+      }
+    } catch (err) {
+      console.warn('Could not load agents for login:', err.message);
+    }
+  }
+
+  showLoginOverlay() {
+    document.getElementById('auth-overlay').style.display = 'flex';
+    document.getElementById('app').style.display = 'none';
+  }
+
+  hideLoginOverlay() {
+    document.getElementById('auth-overlay').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+  }
+
+  setLoginRole(role) {
+    const primeTab = document.getElementById('tab-btn-prime-login');
+    const agentTab = document.getElementById('tab-btn-agent-login');
+    const primeForm = document.getElementById('form-login-prime');
+    const agentForm = document.getElementById('form-login-agent');
+
+    if (role === 'prime') {
+      primeTab.classList.add('active');
+      agentTab.classList.remove('active');
+      primeForm.classList.add('active');
+      agentForm.classList.remove('active');
+    } else {
+      primeTab.classList.remove('active');
+      agentTab.classList.add('active');
+      primeForm.classList.remove('active');
+      agentForm.classList.add('active');
+    }
+  }
+
+  async quickLoginPrime() {
+    await this.login('prime', 'prime', 'admin123');
+  }
+
+  async quickLoginAgent(agentId) {
+    await this.login('agent', agentId, 'agent123');
+  }
+
+  async login(role, identifier, password) {
+    try {
+      if (this.supabase) {
+        // Direct Client-Side Authentication via Supabase
+        if (role === 'prime') {
+          // Verify Prime User Admin Access
+          const validUsers = ['prime', 'admin', 'admin@nexus.com'];
+          const isValidUser = validUsers.includes(String(identifier).trim().toLowerCase());
+          if (!isValidUser || password !== 'admin123') {
+            throw new Error('Invalid Prime User credentials (Use prime / admin123)');
+          }
+          this.currentUser = {
+            id: 0,
+            name: 'Master Administrator',
+            role: 'prime',
+            email: 'admin@nexus.com'
+          };
+        } else {
+          // Verify Agent Login
+          const agent = this.agents.find(a => Number(a.id) === Number(identifier));
+          if (!agent) {
+            throw new Error('Selected Agent profile not found');
+          }
+          const expectedPwd = agent.password || 'agent123';
+          if (password !== expectedPwd && password !== 'agent123') {
+            throw new Error('Incorrect agent passcode (Default: agent123)');
+          }
+          this.currentUser = {
+            id: agent.id,
+            name: agent.name,
+            email: agent.email,
+            phone: agent.phone,
+            badgeColor: agent.badgeColor,
+            role: 'agent'
+          };
+        }
+      } else {
+        // Fallback to local Node.js Server
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role, identifier, password })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Login failed');
+        this.currentUser = data.user;
+      }
+
+      localStorage.setItem('nexus_user', JSON.stringify(this.currentUser));
+      this.showToast(`Logged in as ${this.currentUser.name}!`);
+      this.applyUserSession();
+    } catch (err) {
+      this.showToast(err.message, 'error');
+    }
+  }
+
+  logout() {
+    this.currentUser = null;
+    localStorage.removeItem('nexus_user');
+    this.showLoginOverlay();
+    this.showToast('You have been logged out.');
+  }
+
+  applyUserSession() {
+    if (!this.currentUser) {
+      this.showLoginOverlay();
+      return;
+    }
+
+    this.hideLoginOverlay();
+
+    const roleTag = document.getElementById('nav-user-role-tag');
+    const userName = document.getElementById('nav-user-name');
+    const userAvatar = document.getElementById('nav-user-avatar');
+    const roleSubtitle = document.getElementById('portal-role-subtitle');
+    const primeButtons = document.getElementById('prime-action-buttons');
+    const agentButtons = document.getElementById('agent-action-buttons');
+    const primeTabs = document.getElementById('prime-nav-tabs');
+    const primeView = document.getElementById('prime-view-container');
+    const agentView = document.getElementById('agent-view-container');
+    const contextTitle = document.getElementById('action-bar-context-title');
+
+    if (this.currentUser.role === 'prime') {
+      roleTag.textContent = 'PRIME USER / ADMIN';
+      roleTag.style.color = '#fbbf24';
+      userName.textContent = 'Master Administrator';
+      userAvatar.innerHTML = '<span>👑</span>';
+      userAvatar.style.background = 'linear-gradient(135deg, #fbbf24 0%, #d97706 100%)';
+      roleSubtitle.textContent = 'Master Company & Agent Operations Hub';
+
+      primeButtons.style.display = 'flex';
+      agentButtons.style.display = 'none';
+      primeTabs.style.display = 'flex';
+      primeView.style.display = 'block';
+      agentView.style.display = 'none';
+      contextTitle.textContent = 'Prime User Controls:';
+
+      this.refreshAllPrimeData();
+    } else {
+      // Agent Portal
+      roleTag.textContent = 'COLLECTION AGENT';
+      roleTag.style.color = '#38bdf8';
+      userName.textContent = this.currentUser.name;
+      const initials = this.currentUser.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+      userAvatar.innerHTML = `<span>${initials}</span>`;
+      userAvatar.style.background = this.currentUser.badgeColor || '#3b82f6';
+      roleSubtitle.textContent = `Assigned Portfolio: ${this.currentUser.name}`;
+
+      primeButtons.style.display = 'none';
+      agentButtons.style.display = 'flex';
+      primeTabs.style.display = 'none';
+      primeView.style.display = 'none';
+      agentView.style.display = 'block';
+      contextTitle.textContent = `Agent Workspace (${this.currentUser.name}):`;
+
+      this.refreshAgentData();
+    }
+  }
+
+  // ====================================================================
+  // CURRENCY & TABS & MODALS
+  // ====================================================================
+  formatMoney(amount) {
+    const num = Number(amount || 0);
+    return `${this.currency}${num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  }
+
+  setupCurrencySelector() {
+    const selector = document.getElementById('currency-select');
+    if (selector) {
+      selector.value = this.currency;
+      selector.addEventListener('change', (e) => {
+        this.currency = e.target.value;
+        localStorage.setItem('nexus_currency', this.currency);
+        document.querySelectorAll('.currency-symbol').forEach(el => el.textContent = this.currency);
+        if (this.currentUser?.role === 'prime') {
+          this.renderPrimeData();
+        } else if (this.currentUser?.role === 'agent') {
+          this.renderAgentData();
+        }
+      });
+    }
+    document.querySelectorAll('.currency-symbol').forEach(el => el.textContent = this.currency);
+  }
+
+  setupTabs() {
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    tabButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const targetTab = btn.getAttribute('data-tab');
+        this.switchTab(targetTab);
+      });
+    });
+  }
+
+  switchTab(tabId) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+    const btn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
+    const content = document.getElementById(tabId);
+
+    if (btn) btn.classList.add('active');
+    if (content) content.classList.add('active');
+
+    if (tabId === 'tab-dashboard') {
+      setTimeout(() => this.drawPieChart(), 50);
+    }
+  }
+
+  setupModals() {
+    document.querySelectorAll('.modal-backdrop').forEach(modal => {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          modal.classList.remove('open');
+        }
+      });
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-backdrop.open').forEach(m => m.classList.remove('open'));
+      }
+    });
+  }
+
+  openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) modal.classList.add('open');
+  }
+
+  closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) modal.classList.remove('open');
+  }
+
+  showToast(message, type = 'success') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    let icon = '✓';
+    if (type === 'error') icon = '✕';
+    if (type === 'info') icon = 'ℹ';
+
+    toast.innerHTML = `<span style="font-weight: bold;">${icon}</span> <span>${message}</span>`;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(20px)';
+      toast.style.transition = 'all 0.3s ease';
+      setTimeout(() => toast.remove(), 300);
+    }, 3800);
+  }
+
+  setupQuickButtons() {
+    // Prime User Action Buttons
+    document.getElementById('btn-open-invoice-modal')?.addEventListener('click', () => this.openAddInvoiceModal());
+    document.getElementById('btn-add-invoice-tab')?.addEventListener('click', () => this.openAddInvoiceModal());
+    document.getElementById('btn-open-company-modal')?.addEventListener('click', () => this.openAddCompanyModal());
+    document.getElementById('btn-add-company-tab')?.addEventListener('click', () => this.openAddCompanyModal());
+    document.getElementById('btn-open-agent-modal')?.addEventListener('click', () => this.openAddAgentModal());
+    document.getElementById('btn-add-agent-tab')?.addEventListener('click', () => this.openAddAgentModal());
+    document.getElementById('btn-open-reward-modal')?.addEventListener('click', () => this.openGrantRewardModal());
+    document.getElementById('btn-grant-reward-tab')?.addEventListener('click', () => this.openGrantRewardModal());
+    document.getElementById('btn-quick-reward')?.addEventListener('click', () => this.openGrantRewardModal());
+    document.getElementById('btn-open-record-modal-prime')?.addEventListener('click', () => this.openRecordCollectionModal());
+    document.getElementById('btn-record-ledger-tab')?.addEventListener('click', () => this.openRecordCollectionModal());
+
+    // Agent Action Buttons
+    document.getElementById('btn-agent-record-collection')?.addEventListener('click', () => this.openRecordCollectionModal());
+
+    // Export CSV (Dual Mode: Browser CSV download or server endpoint)
+    document.getElementById('btn-export-csv')?.addEventListener('click', () => {
+      this.exportCollectionsCSV();
+    });
+  }
+
+  exportCollectionsCSV() {
+    if (!this.collections || this.collections.length === 0) {
+      this.showToast('No collections to export', 'error');
+      return;
+    }
+
+    const headers = ['Collection ID', 'Reference No', 'Company', 'Agent', 'Amount', 'Payment Date', 'Payment Method', 'Recorded By', 'Notes'];
+    const rows = this.collections.map(c => [
+      c.id,
+      `"${(c.reference_no || '').replace(/"/g, '""')}"`,
+      `"${(c.company_name || '').replace(/"/g, '""')}"`,
+      `"${(c.agent_name || '').replace(/"/g, '""')}"`,
+      c.amount,
+      c.payment_date,
+      `"${(c.payment_method || '').replace(/"/g, '""')}"`,
+      `"${(c.recorded_by || '').replace(/"/g, '""')}"`,
+      `"${(c.notes || '').replace(/"/g, '""')}"`
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `nexus_collections_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    this.showToast('Collections Audit CSV downloaded successfully!');
+  }
+
+  // ====================================================================
+  // PRIME USER DATA LOADING & RENDERING
+  // ====================================================================
+  async refreshAllPrimeData() {
+    try {
+      if (this.supabase) {
+        // Direct Query from Supabase Cloud
+        const [compRes, invRes, colRes, rewRes, agtRes] = await Promise.all([
+          this.supabase.from('companies').select('*, agents(name, badge_color)').order('name'),
+          this.supabase.from('invoices').select('*, companies(name, agent_id, agents(name, badge_color))').order('invoice_date', { ascending: false }),
+          this.supabase.from('collections').select('*, companies(name, target_amount), agents(name, badge_color)').order('payment_date', { ascending: false }),
+          this.supabase.from('rewards').select('*, agents(name, badge_color, email)').order('awarded_date', { ascending: false }),
+          this.supabase.from('agents').select('*').order('name')
+        ]);
+
+        if (compRes.error) throw compRes.error;
+        if (invRes.error) throw invRes.error;
+        if (colRes.error) throw colRes.error;
+        if (rewRes.error) throw rewRes.error;
+        if (agtRes.error) throw agtRes.error;
+
+        // Process Agents
+        this.agents = (agtRes.data || []).map(a => ({
+          id: a.id,
+          name: a.name,
+          email: a.email,
+          phone: a.phone,
+          password: a.password || 'agent123',
+          badgeColor: a.badge_color || '#3b82f6',
+          status: a.status || 'Active'
+        }));
+
+        // Process Invoices
+        this.invoices = (invRes.data || []).map(i => ({
+          id: i.id,
+          company_id: i.company_id,
+          company_name: i.companies?.name || 'Unknown',
+          agent_id: i.companies?.agent_id,
+          agent_name: i.companies?.agents?.name || 'Unassigned',
+          agent_color: i.companies?.agents?.badge_color || '#64748b',
+          invoice_number: i.invoice_number,
+          invoice_date: i.invoice_date,
+          due_date: i.due_date,
+          amount: Number(i.amount || 0),
+          notes: i.notes,
+          created_by: i.created_by || 'Prime User'
+        }));
+
+        // Process Collections
+        this.collections = (colRes.data || []).map(c => ({
+          id: c.id,
+          company_id: c.company_id,
+          company_name: c.companies?.name || 'Unknown',
+          agent_id: c.agent_id,
+          agent_name: c.agents?.name || 'Unassigned',
+          agent_color: c.agents?.badge_color || '#4f46e5',
+          invoice_id: c.invoice_id,
+          amount: Number(c.amount || 0),
+          payment_date: c.payment_date,
+          payment_method: c.payment_method || 'Bank Transfer',
+          reference_no: c.reference_no,
+          notes: c.notes,
+          recorded_by: c.recorded_by || 'Prime User'
+        }));
+
+        // Process Rewards
+        this.rewards = (rewRes.data || []).map(r => ({
+          id: r.id,
+          agent_id: r.agent_id,
+          agent_name: r.agents?.name || 'Unknown',
+          agent_color: r.agents?.badge_color || '#f59e0b',
+          amount: Number(r.amount || 0),
+          reward_type: r.reward_type || 'Performance Bonus',
+          reason: r.reason,
+          status: r.status || 'Awarded',
+          awarded_date: r.awarded_date
+        }));
+
+        // Process Companies & Financial Totals
+        this.companies = (compRes.data || []).map(c => {
+          const compInvoices = this.invoices.filter(i => Number(i.company_id) === Number(c.id));
+          const invSum = compInvoices.reduce((s, i) => s + Number(i.amount || 0), 0);
+          const target = Number(c.target_amount) > 0 ? Number(c.target_amount) : invSum;
+
+          const compCollections = this.collections.filter(col => Number(col.company_id) === Number(c.id));
+          const collected = compCollections.reduce((s, col) => s + Number(col.amount || 0), 0);
+          const pending = Math.max(0, target - collected);
+          const progress = target > 0 ? Number(((collected / target) * 100).toFixed(1)) : 0;
+          const status = (collected >= target && target > 0) ? 'Completed' : (collected > 0 ? 'In Progress' : 'Pending');
+
+          return {
+            id: c.id,
+            name: c.name,
+            contact_person: c.contact_person,
+            contact_phone: c.contact_phone,
+            category: c.category || 'General',
+            target_amount: target,
+            collected_amount: collected,
+            pending_amount: pending,
+            progress_percent: progress,
+            agent_id: c.agent_id,
+            agent_name: c.agents?.name || 'Unassigned',
+            agent_color: c.agents?.badge_color || '#64748b',
+            status,
+            notes: c.notes
+          };
+        });
+
+        // Compute Agent Share & Performance Breakdown
+        const totalAllCollected = this.collections.reduce((s, c) => s + c.amount, 0);
+        this.agentShare = this.agents.map(agent => {
+          const agentCollections = this.collections.filter(c => Number(c.agent_id) === Number(agent.id));
+          const totalCollected = agentCollections.reduce((s, c) => s + c.amount, 0);
+
+          const agentCompanies = this.companies.filter(c => Number(c.agent_id) === Number(agent.id));
+          const assignedTarget = agentCompanies.reduce((s, c) => s + c.target_amount, 0);
+          const companyCount = agentCompanies.length;
+
+          const agentRewards = this.rewards.filter(r => Number(r.agent_id) === Number(agent.id));
+          const totalRewards = agentRewards.reduce((s, r) => s + r.amount, 0);
+
+          const percentageOfTotal = totalAllCollected > 0 ? Number(((totalCollected / totalAllCollected) * 100).toFixed(1)) : 0;
+          const targetAchievementRate = assignedTarget > 0 ? Number(((totalCollected / assignedTarget) * 100).toFixed(1)) : 0;
+
+          let suggestedTier = 'Standard';
+          let bonusPercent = 0;
+          if (targetAchievementRate >= 95) {
+            suggestedTier = 'Platinum Elite';
+            bonusPercent = 5.0;
+          } else if (targetAchievementRate >= 85) {
+            suggestedTier = 'Gold Tier';
+            bonusPercent = 3.5;
+          } else if (targetAchievementRate >= 70) {
+            suggestedTier = 'Silver Tier';
+            bonusPercent = 2.0;
+          } else if (targetAchievementRate >= 50) {
+            suggestedTier = 'Bronze Tier';
+            bonusPercent = 1.0;
+          }
+
+          const suggestedBonus = Math.round((totalCollected * bonusPercent) / 100);
+
+          return {
+            id: agent.id,
+            name: agent.name,
+            email: agent.email,
+            phone: agent.phone,
+            badgeColor: agent.badgeColor,
+            totalCollected,
+            assignedTarget,
+            companyCount,
+            totalRewards,
+            percentageOfTotal,
+            targetAchievementRate,
+            suggestedTier,
+            suggestedBonus
+          };
+        });
+
+        this.agentShare.sort((a, b) => b.totalCollected - a.totalCollected);
+        this.agentShare.forEach((a, idx) => a.rank = idx + 1);
+
+        // Overall Stats
+        const totalTarget = this.companies.reduce((s, c) => s + c.target_amount, 0);
+        const totalCollected = totalAllCollected;
+        const pendingAmount = Math.max(0, totalTarget - totalCollected);
+        const progressPercent = totalTarget > 0 ? Number(((totalCollected / totalTarget) * 100).toFixed(1)) : 0;
+        const totalRewardsDistributed = this.rewards.reduce((s, r) => s + r.amount, 0);
+        const topAgent = this.agentShare.find(a => a.totalCollected > 0) || this.agentShare[0] || null;
+
+        this.stats = {
+          totalTarget,
+          totalCollected,
+          pendingAmount,
+          progressPercent,
+          totalCompanies: this.companies.length,
+          totalInvoices: this.invoices.length,
+          activeAgentsCount: this.agents.length,
+          totalRewardsDistributed,
+          rewardCount: this.rewards.length,
+          topAgent
+        };
+
+        this.renderPrimeData();
+      } else {
+        // Fallback to local Node.js Server
+        const [statsRes, shareRes, compRes, colRes, rewRes, invRes] = await Promise.all([
+          fetch('/api/dashboard/stats'),
+          fetch('/api/dashboard/agent-share'),
+          fetch('/api/companies'),
+          fetch('/api/collections?limit=100'),
+          fetch('/api/rewards'),
+          fetch('/api/invoices')
+        ]);
+
+        this.stats = await statsRes.json();
+        this.agentShare = await shareRes.json();
+        this.companies = await compRes.json();
+        this.collections = await colRes.json();
+        this.rewards = await rewRes.json();
+        this.invoices = await invRes.json();
+
+        this.renderPrimeData();
+      }
+    } catch (err) {
+      console.error('Error refreshing prime data:', err);
+      this.showToast('Failed to load database records', 'error');
+    }
+  }
+
+  renderPrimeData() {
+    this.renderPrimeStats();
+    this.renderProgressBar();
+    this.drawPieChart();
+    this.renderPieLegend();
+    this.renderLeaderboard();
+    this.renderRecentCollections();
+    this.renderInvoicesTable();
+    this.renderCompaniesTable();
+    this.renderAgentsFleet();
+    this.renderRewardsTable();
+    this.renderLedgerTable();
+    this.populateSelectDropdowns();
+  }
+
+  renderPrimeStats() {
+    if (!this.stats) return;
+
+    document.getElementById('stat-total-target').textContent = this.formatMoney(this.stats.totalTarget);
+    document.getElementById('stat-total-collected').textContent = this.formatMoney(this.stats.totalCollected);
+    document.getElementById('stat-pending-amount').textContent = this.formatMoney(this.stats.pendingAmount);
+    document.getElementById('stat-collected-pct').textContent = `${this.stats.progressPercent}% Collected`;
+    document.getElementById('stat-company-count-badge').textContent = this.stats.totalCompanies;
+    document.getElementById('stat-invoice-count-badge').textContent = this.stats.totalInvoices || 0;
+    document.getElementById('stat-active-agents').textContent = this.stats.activeAgentsCount;
+    document.getElementById('stat-total-rewards').textContent = this.formatMoney(this.stats.totalRewardsDistributed);
+    document.getElementById('stat-reward-count').textContent = this.stats.rewardCount;
+
+    document.getElementById('tab-invoice-count').textContent = this.invoices.length;
+    document.getElementById('tab-company-count').textContent = this.stats.totalCompanies;
+    document.getElementById('tab-agent-count').textContent = this.stats.activeAgentsCount;
+
+    if (this.stats.topAgent) {
+      document.getElementById('stat-top-agent-name').textContent = this.stats.topAgent.name;
+    }
+  }
+
+  renderProgressBar() {
+    if (!this.stats) return;
+    const bar = document.getElementById('overall-progress-bar');
+    const text = document.getElementById('overall-progress-text');
+    const amounts = document.getElementById('overall-amounts-text');
+
+    const pct = Math.min(100, this.stats.progressPercent);
+    if (bar) bar.style.width = `${pct}%`;
+    if (text) text.textContent = `${pct}% Recovered`;
+    if (amounts) amounts.textContent = `${this.formatMoney(this.stats.totalCollected)} / ${this.formatMoney(this.stats.totalTarget)}`;
+  }
+
+  // ====================================================================
+  // PIE CHART (HTML5 CANVAS)
+  // ====================================================================
+  drawPieChart() {
+    const canvas = document.getElementById('agentPieChart');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const outerRadius = Math.min(centerX, centerY) - 15;
+    const innerRadius = outerRadius * 0.58;
+
+    ctx.clearRect(0, 0, width, height);
+
+    if (!this.agentShare || this.agentShare.length === 0) {
+      ctx.fillStyle = '#64748b';
+      ctx.font = '14px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('No collection data recorded', centerX, centerY);
+      return;
+    }
+
+    const totalCollected = this.agentShare.reduce((sum, a) => sum + a.totalCollected, 0);
+
+    const overlayVal = document.getElementById('overlay-collected-val');
+    const overlayAgents = document.getElementById('overlay-agent-count');
+    if (overlayVal) overlayVal.textContent = this.formatMoney(totalCollected);
+    if (overlayAgents) overlayAgents.textContent = `${this.agentShare.length} Active Agents`;
+
+    if (totalCollected === 0) {
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, outerRadius, 0, 2 * Math.PI);
+      ctx.arc(centerX, centerY, innerRadius, 2 * Math.PI, 0, true);
+      ctx.fillStyle = '#1e293b';
+      ctx.fill();
+      return;
+    }
+
+    let startAngle = -Math.PI / 2;
+    this.pieSlices = [];
+
+    this.agentShare.forEach((agent, index) => {
+      const sliceAngle = (agent.totalCollected / totalCollected) * (2 * Math.PI);
+      const endAngle = startAngle + sliceAngle;
+      const isHovered = this.hoveredSliceIndex === index;
+
+      let drawRadius = outerRadius;
+      let offsetX = 0;
+      let offsetY = 0;
+
+      if (isHovered) {
+        drawRadius += 8;
+        const midAngle = startAngle + sliceAngle / 2;
+        offsetX = Math.cos(midAngle) * 6;
+        offsetY = Math.sin(midAngle) * 6;
+      }
+
+      ctx.save();
+      ctx.translate(offsetX, offsetY);
+
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, drawRadius, startAngle, endAngle);
+      ctx.arc(centerX, centerY, innerRadius, endAngle, startAngle, true);
+      ctx.closePath();
+
+      ctx.fillStyle = agent.badgeColor || '#4f46e5';
+      ctx.fill();
+
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#111827';
+      ctx.stroke();
+
+      ctx.restore();
+
+      this.pieSlices.push({
+        agent,
+        index,
+        startAngle,
+        endAngle,
+        innerRadius,
+        outerRadius: drawRadius,
+        color: agent.badgeColor
+      });
+
+      startAngle = endAngle;
+    });
+  }
+
+  setupCanvasInteractivity() {
+    const canvas = document.getElementById('agentPieChart');
+    if (!canvas) return;
+
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+      const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      let angle = Math.atan2(dy, dx);
+      if (angle < -Math.PI / 2) {
+        angle += 2 * Math.PI;
+      }
+
+      let hovered = -1;
+      if (this.pieSlices) {
+        for (let i = 0; i < this.pieSlices.length; i++) {
+          const slice = this.pieSlices[i];
+          if (dist >= slice.innerRadius && dist <= slice.outerRadius + 8) {
+            let start = slice.startAngle;
+            let end = slice.endAngle;
+            if (angle >= start && angle <= end) {
+              hovered = i;
+              break;
+            }
+          }
+        }
+      }
+
+      if (hovered !== this.hoveredSliceIndex) {
+        this.hoveredSliceIndex = hovered;
+        this.drawPieChart();
+        this.updateLegendHighlight(hovered);
+
+        if (hovered !== -1) {
+          const ag = this.agentShare[hovered];
+          document.getElementById('overlay-collected-val').textContent = this.formatMoney(ag.totalCollected);
+          document.getElementById('overlay-agent-count').textContent = `${ag.name} (${ag.percentageOfTotal}%)`;
+        } else {
+          const totalCollected = this.agentShare.reduce((sum, a) => sum + a.totalCollected, 0);
+          document.getElementById('overlay-collected-val').textContent = this.formatMoney(totalCollected);
+          document.getElementById('overlay-agent-count').textContent = `${this.agentShare.length} Active Agents`;
+        }
+      }
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      if (this.hoveredSliceIndex !== -1) {
+        this.hoveredSliceIndex = -1;
+        this.drawPieChart();
+        this.updateLegendHighlight(-1);
+        const totalCollected = this.agentShare.reduce((sum, a) => sum + a.totalCollected, 0);
+        document.getElementById('overlay-collected-val').textContent = this.formatMoney(totalCollected);
+        document.getElementById('overlay-agent-count').textContent = `${this.agentShare.length} Active Agents`;
+      }
+    });
+  }
+
+  updateLegendHighlight(index) {
+    document.querySelectorAll('.legend-item').forEach((item, i) => {
+      if (i === index) item.classList.add('highlighted');
+      else item.classList.remove('highlighted');
+    });
+  }
+
+  renderPieLegend() {
+    const container = document.getElementById('pie-legend-list');
+    if (!container) return;
+
+    container.innerHTML = this.agentShare.map((agent, index) => `
+      <div class="legend-item" data-index="${index}" onclick="app.highlightAgentFromLegend(${index})">
+        <div class="legend-left">
+          <div class="legend-color-dot" style="background-color: ${agent.badgeColor};"></div>
+          <div>
+            <div class="legend-name">${agent.name}</div>
+            <div class="legend-companies">${agent.companyCount} companies &bull; Target: ${this.formatMoney(agent.assignedTarget)}</div>
+          </div>
+        </div>
+        <div class="legend-right">
+          <div class="legend-amount">${this.formatMoney(agent.totalCollected)}</div>
+          <span class="legend-pct-badge">${agent.percentageOfTotal}% share</span>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  highlightAgentFromLegend(index) {
+    this.hoveredSliceIndex = this.hoveredSliceIndex === index ? -1 : index;
+    this.drawPieChart();
+    this.updateLegendHighlight(this.hoveredSliceIndex);
+  }
+
+  renderLeaderboard() {
+    const container = document.getElementById('leaderboard-container');
+    if (!container) return;
+
+    container.innerHTML = this.agentShare.map((agent) => {
+      let rankClass = 'rank-other';
+      if (agent.rank === 1) rankClass = 'rank-1';
+      else if (agent.rank === 2) rankClass = 'rank-2';
+      else if (agent.rank === 3) rankClass = 'rank-3';
+
+      const achRate = Math.min(100, agent.targetAchievementRate);
+
+      return `
+        <div class="leaderboard-card">
+          <div class="rank-badge ${rankClass}">#${agent.rank}</div>
+          <div class="card-agent-info">
+            <div class="agent-name-row">
+              <span class="agent-card-name">${agent.name}</span>
+              <span class="agent-tier-badge">${agent.suggestedTier}</span>
+            </div>
+            <div class="agent-mini-bar">
+              <div class="agent-mini-fill" style="width: ${achRate}%; background-color: ${agent.badgeColor};"></div>
+            </div>
+            <div class="agent-progress-meta">
+              <span>${achRate}% of target (${this.formatMoney(agent.assignedTarget)})</span>
+              <span>${agent.percentageOfTotal}% total share</span>
+            </div>
+          </div>
+          <div class="card-metrics">
+            <div class="card-collected-val">${this.formatMoney(agent.totalCollected)}</div>
+            <div class="card-reward-earned">Rewards: ${this.formatMoney(agent.totalRewards)}</div>
+            <button class="btn btn-card-reward btn-amber" onclick="app.quickRewardAgent(${agent.id}, '${agent.name}', ${agent.suggestedBonus})">
+              + Reward
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  renderRecentCollections() {
+    const tbody = document.getElementById('recent-collections-tbody');
+    if (!tbody) return;
+
+    const recent = this.collections.slice(0, 6);
+    if (recent.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:1.5rem; color:#64748b;">No collections recorded</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = recent.map(c => `
+      <tr>
+        <td><strong style="color:#818cf8; font-family:'JetBrains Mono',monospace;">${c.reference_no || 'TXN-' + c.id}</strong></td>
+        <td><strong>${c.company_name}</strong></td>
+        <td>
+          <span style="display:inline-flex; align-items:center; gap:0.4rem;">
+            <span style="width:8px; height:8px; border-radius:50%; background:${c.agent_color || '#4f46e5'};"></span>
+            ${c.agent_name || 'Unassigned'}
+          </span>
+        </td>
+        <td style="color:#34d399; font-weight:700; font-family:'JetBrains Mono',monospace;">${this.formatMoney(c.amount)}</td>
+        <td>${c.payment_date}</td>
+        <td><span class="metric-badge badge-info">${c.payment_method}</span></td>
+        <td><span class="metric-badge badge-purple">${c.recorded_by || 'Prime User'}</span></td>
+      </tr>
+    `).join('');
+  }
+
+  // ====================================================================
+  // PRIME INVOICES TABLE
+  // ====================================================================
+  renderInvoicesTable() {
+    const tbody = document.getElementById('invoices-table-tbody');
+    if (!tbody) return;
+
+    const search = (document.getElementById('invoice-search')?.value || '').toLowerCase();
+    const filterCompany = document.getElementById('filter-invoice-company')?.value || '';
+    const filterAgent = document.getElementById('filter-invoice-agent')?.value || '';
+
+    const filtered = this.invoices.filter(inv => {
+      const matchSearch = inv.invoice_number.toLowerCase().includes(search) ||
+                          inv.company_name.toLowerCase().includes(search) ||
+                          (inv.agent_name && inv.agent_name.toLowerCase().includes(search));
+      const matchCompany = !filterCompany || String(inv.company_id) === filterCompany;
+      const matchAgent = !filterAgent || String(inv.agent_id) === filterAgent;
+      return matchSearch && matchCompany && matchAgent;
+    });
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:1.5rem; color:#64748b;">No company bills found. Click "+ Add Company Bill / Invoice" to issue bills.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = filtered.map(inv => `
+      <tr>
+        <td><strong style="color:#38bdf8; font-family:'JetBrains Mono',monospace;">${inv.invoice_number}</strong></td>
+        <td>${inv.invoice_date}</td>
+        <td>${inv.due_date || '-'}</td>
+        <td><strong>${inv.company_name}</strong></td>
+        <td>
+          <span style="display:inline-flex; align-items:center; gap:0.4rem;">
+            <span style="width:8px; height:8px; border-radius:50%; background:${inv.agent_color || '#64748b'};"></span>
+            <strong>${inv.agent_name || '<em style="color:#94a3b8">Unassigned</em>'}</strong>
+          </span>
+        </td>
+        <td style="color:#f87171; font-weight:800; font-family:'JetBrains Mono',monospace;">${this.formatMoney(inv.amount)}</td>
+        <td style="max-width: 220px; color:#94a3b8; font-size:0.78rem;">${inv.notes || '-'}</td>
+        <td><span class="metric-badge badge-purple">${inv.created_by || 'Prime User'}</span></td>
+        <td>
+          <button class="btn btn-sm btn-outline-danger" onclick="app.deleteInvoice(${inv.id})" title="Delete Invoice">
+            &times;
+          </button>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  // ====================================================================
+  // PRIME COMPANIES TABLE
+  // ====================================================================
+  renderCompaniesTable() {
+    const tbody = document.getElementById('companies-table-tbody');
+    if (!tbody) return;
+
+    const search = (document.getElementById('company-search')?.value || '').toLowerCase();
+    const filterAgent = document.getElementById('filter-company-agent')?.value || '';
+    const filterStatus = document.getElementById('filter-company-status')?.value || '';
+
+    const filtered = this.companies.filter(c => {
+      const matchSearch = c.name.toLowerCase().includes(search) || (c.contact_person && c.contact_person.toLowerCase().includes(search));
+      const matchAgent = !filterAgent || String(c.agent_id) === filterAgent;
+      const matchStatus = !filterStatus || c.status === filterStatus;
+      return matchSearch && matchAgent && matchStatus;
+    });
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:1.5rem; color:#64748b;">No matching companies found</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = filtered.map(c => {
+      let statusBadge = '<span class="metric-badge badge-warning">Pending</span>';
+      if (c.status === 'Completed') statusBadge = '<span class="metric-badge badge-success">Completed</span>';
+      else if (c.status === 'In Progress') statusBadge = '<span class="metric-badge badge-info">In Progress</span>';
+
+      return `
+        <tr>
+          <td>
+            <strong>${c.name}</strong>
+            ${c.contact_person ? `<div style="font-size:0.75rem; color:#64748b;">Contact: ${c.contact_person}</div>` : ''}
+          </td>
+          <td><span class="metric-badge badge-purple">${c.category || 'General'}</span></td>
+          <td>
+            <span style="display:inline-flex; align-items:center; gap:0.4rem;">
+              <span style="width:10px; height:10px; border-radius:50%; background:${c.agent_color || '#64748b'};"></span>
+              <strong>${c.agent_name || '<em style="color:#94a3b8">Unassigned</em>'}</strong>
+            </span>
+          </td>
+          <td style="font-weight:700; font-family:'JetBrains Mono',monospace;">${this.formatMoney(c.target_amount)}</td>
+          <td style="color:#34d399; font-weight:700; font-family:'JetBrains Mono',monospace;">${this.formatMoney(c.collected_amount)}</td>
+          <td style="color:#f87171; font-weight:700; font-family:'JetBrains Mono',monospace;">${this.formatMoney(c.pending_amount)}</td>
+          <td style="width: 140px;">
+            <div style="font-size:0.75rem; margin-bottom:0.2rem; color:#94a3b8;">${c.progress_percent}%</div>
+            <div style="width:100%; height:6px; background:#1e293b; border-radius:3px; overflow:hidden;">
+              <div style="width:${Math.min(100, c.progress_percent)}%; height:100%; background:${c.progress_percent >= 100 ? '#10b981' : '#3b82f6'}; border-radius:3px;"></div>
+            </div>
+          </td>
+          <td>${statusBadge}</td>
+          <td>
+            <div style="display:flex; gap:0.35rem;">
+              <button class="btn btn-sm btn-primary" onclick="app.quickAddInvoiceForCompany(${c.id})" title="Issue Bill / Invoice">
+                + Bill
+              </button>
+              <button class="btn btn-sm btn-secondary" onclick="app.editCompany(${c.id})" title="Edit Details & Agent">
+                Edit
+              </button>
+              <button class="btn btn-sm btn-outline-danger" onclick="app.deleteCompany(${c.id})" title="Delete Company">
+                &times;
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  // ====================================================================
+  // PRIME AGENTS FLEET
+  // ====================================================================
+  renderAgentsFleet() {
+    const container = document.getElementById('agents-grid-container');
+    if (!container) return;
+
+    container.innerHTML = this.agentShare.map(agent => {
+      const achRate = Math.min(100, agent.targetAchievementRate);
+      const initials = agent.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+
+      return `
+        <div class="agent-fleet-card">
+          <div>
+            <div class="agent-fleet-header">
+              <div class="agent-avatar-circle" style="background-color: ${agent.badgeColor};">
+                ${initials}
+              </div>
+              <div class="agent-fleet-meta">
+                <h4>${agent.name}</h4>
+                <div class="agent-fleet-contact">${agent.email || 'No email'} &bull; ${agent.phone || 'No phone'}</div>
+              </div>
+            </div>
+
+            <div class="agent-stats-strip">
+              <div class="stat-strip-box">
+                <div class="stat-strip-label">Total Collected</div>
+                <div class="stat-strip-val" style="color:#34d399;">${this.formatMoney(agent.totalCollected)}</div>
+              </div>
+              <div class="stat-strip-box">
+                <div class="stat-strip-label">Assigned Bills Target</div>
+                <div class="stat-strip-val">${this.formatMoney(agent.assignedTarget)}</div>
+              </div>
+              <div class="stat-strip-box">
+                <div class="stat-strip-label">Assigned Companies</div>
+                <div class="stat-strip-val">${agent.companyCount} accounts</div>
+              </div>
+              <div class="stat-strip-box">
+                <div class="stat-strip-label">Total Rewards</div>
+                <div class="stat-strip-val" style="color:#fbbf24;">${this.formatMoney(agent.totalRewards)}</div>
+              </div>
+            </div>
+
+            <div class="agent-fleet-progress">
+              <div class="fleet-progress-label">
+                <span>Recovery Goal (${achRate}%)</span>
+                <span style="color:#38bdf8; font-weight:700;">${agent.percentageOfTotal}% total share</span>
+              </div>
+              <div class="fleet-progress-bar">
+                <div style="width: ${achRate}%; height:100%; background-color: ${agent.badgeColor}; border-radius:4px;"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="agent-fleet-actions">
+            <button class="btn btn-sm btn-amber flex-1" onclick="app.quickRewardAgent(${agent.id}, '${agent.name}', ${agent.suggestedBonus})">
+              🏆 Grant Reward
+            </button>
+            <button class="btn btn-sm btn-secondary" onclick="app.editAgent(${agent.id})">
+              Edit
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="app.deleteAgent(${agent.id})">
+              Delete
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ====================================================================
+  // PRIME REWARDS TABLE
+  // ====================================================================
+  renderRewardsTable() {
+    const tbody = document.getElementById('rewards-table-tbody');
+    if (!tbody) return;
+
+    if (!this.rewards || this.rewards.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:1.5rem; color:#64748b;">No agent rewards recorded yet. Use the "+ Grant Agent Reward" button to reward your agents!</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = this.rewards.map(r => `
+      <tr>
+        <td>${r.awarded_date}</td>
+        <td>
+          <span style="display:inline-flex; align-items:center; gap:0.4rem;">
+            <span style="width:10px; height:10px; border-radius:50%; background:${r.agent_color || '#f59e0b'};"></span>
+            <strong>${r.agent_name}</strong>
+          </span>
+        </td>
+        <td><span class="metric-badge badge-warning">${r.reward_type}</span></td>
+        <td style="color:#fbbf24; font-weight:800; font-family:'JetBrains Mono',monospace;">${this.formatMoney(r.amount)}</td>
+        <td style="max-width: 280px;">${r.reason || 'Performance incentive'}</td>
+        <td>
+          <span class="metric-badge ${r.status === 'Paid' ? 'badge-success' : 'badge-info'}">
+            ${r.status}
+          </span>
+        </td>
+        <td>
+          <div style="display:flex; gap:0.35rem;">
+            ${r.status !== 'Paid' ? `
+              <button class="btn btn-sm btn-emerald" onclick="app.markRewardPaid(${r.id})" title="Mark as Paid">
+                Mark Paid
+              </button>
+            ` : ''}
+            <button class="btn btn-sm btn-outline-danger" onclick="app.deleteReward(${r.id})" title="Delete Reward">
+              &times;
+            </button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  // ====================================================================
+  // PRIME LEDGER TABLE
+  // ====================================================================
+  renderLedgerTable() {
+    const tbody = document.getElementById('ledger-table-tbody');
+    if (!tbody) return;
+
+    const search = (document.getElementById('ledger-search')?.value || '').toLowerCase();
+    const filterAgent = document.getElementById('filter-ledger-agent')?.value || '';
+
+    const filtered = this.collections.filter(c => {
+      const matchSearch = (c.reference_no && c.reference_no.toLowerCase().includes(search)) ||
+                          (c.company_name && c.company_name.toLowerCase().includes(search)) ||
+                          (c.agent_name && c.agent_name.toLowerCase().includes(search));
+      const matchAgent = !filterAgent || String(c.agent_id) === filterAgent;
+      return matchSearch && matchAgent;
+    });
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:1.5rem; color:#64748b;">No collections found matching filter criteria</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = filtered.map(c => `
+      <tr>
+        <td><strong style="color:#818cf8; font-family:'JetBrains Mono',monospace;">${c.reference_no || 'TXN-' + c.id}</strong></td>
+        <td>${c.payment_date}</td>
+        <td><strong>${c.company_name}</strong></td>
+        <td>
+          <span style="display:inline-flex; align-items:center; gap:0.4rem;">
+            <span style="width:8px; height:8px; border-radius:50%; background:${c.agent_color || '#4f46e5'};"></span>
+            ${c.agent_name || 'Unassigned'}
+          </span>
+        </td>
+        <td style="color:#34d399; font-weight:700; font-family:'JetBrains Mono',monospace;">${this.formatMoney(c.amount)}</td>
+        <td><span class="metric-badge badge-info">${c.payment_method}</span></td>
+        <td><span class="metric-badge badge-purple">${c.recorded_by || 'Prime User'}</span></td>
+        <td style="max-width: 200px; color:#94a3b8; font-size:0.78rem;">${c.notes || '-'}</td>
+        <td>
+          <button class="btn btn-sm btn-outline-danger" onclick="app.deleteCollection(${c.id})" title="Delete Collection Record">
+            &times;
+          </button>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  // ====================================================================
+  // AGENT PORTAL DATA LOADING & RENDERING
+  // ====================================================================
+  async refreshAgentData() {
+    if (!this.currentUser || this.currentUser.role !== 'agent') return;
+
+    try {
+      if (this.supabase) {
+        // Direct Query from Supabase Cloud for this Agent
+        const agentId = this.currentUser.id;
+        const [compRes, colRes, invRes, rewRes] = await Promise.all([
+          this.supabase.from('companies').select('*').eq('agent_id', agentId).order('name'),
+          this.supabase.from('collections').select('*, companies(name)').eq('agent_id', agentId).order('payment_date', { ascending: false }),
+          this.supabase.from('invoices').select('*, companies!inner(name, agent_id)').eq('companies.agent_id', agentId).order('invoice_date', { ascending: false }),
+          this.supabase.from('rewards').select('*').eq('agent_id', agentId).order('awarded_date', { ascending: false })
+        ]);
+
+        if (compRes.error) throw compRes.error;
+        if (colRes.error) throw colRes.error;
+        if (invRes.error) throw invRes.error;
+        if (rewRes.error) throw rewRes.error;
+
+        const rawCollections = colRes.data || [];
+        const rawInvoices = invRes.data || [];
+        const rawRewards = rewRes.data || [];
+        const rawCompanies = compRes.data || [];
+
+        // Format collections
+        const formattedCollections = rawCollections.map(c => ({
+          id: c.id,
+          reference_no: c.reference_no,
+          payment_date: c.payment_date,
+          company_name: c.companies?.name || 'Unknown',
+          amount: Number(c.amount || 0),
+          payment_method: c.payment_method,
+          notes: c.notes
+        }));
+
+        // Format invoices
+        const formattedInvoices = rawInvoices.map(i => ({
+          id: i.id,
+          invoice_number: i.invoice_number,
+          invoice_date: i.invoice_date,
+          due_date: i.due_date,
+          company_name: i.companies?.name || 'Unknown',
+          amount: Number(i.amount || 0),
+          notes: i.notes
+        }));
+
+        // Format companies
+        const formattedCompanies = rawCompanies.map(c => {
+          const compInvoices = rawInvoices.filter(i => Number(i.company_id) === Number(c.id));
+          const invSum = compInvoices.reduce((s, i) => s + Number(i.amount || 0), 0);
+          const target = Number(c.target_amount) > 0 ? Number(c.target_amount) : invSum;
+
+          const compCollections = rawCollections.filter(col => Number(col.company_id) === Number(c.id));
+          const collected = compCollections.reduce((s, col) => s + Number(col.amount || 0), 0);
+          const pending = Math.max(0, target - collected);
+          const progress = target > 0 ? Number(((collected / target) * 100).toFixed(1)) : 0;
+          const status = (collected >= target && target > 0) ? 'Completed' : (collected > 0 ? 'In Progress' : 'Pending');
+
+          return {
+            id: c.id,
+            name: c.name,
+            category: c.category,
+            contact_person: c.contact_person,
+            contact_phone: c.contact_phone,
+            target_amount: target,
+            collected_amount: collected,
+            pending_amount: pending,
+            progress_percent: progress,
+            status
+          };
+        });
+
+        // Compute Agent Totals
+        const totalTarget = formattedCompanies.reduce((s, c) => s + c.target_amount, 0);
+        const totalCollected = formattedCollections.reduce((s, c) => s + c.amount, 0);
+        const pendingAmount = Math.max(0, totalTarget - totalCollected);
+        const progressPercent = totalTarget > 0 ? Number(((totalCollected / totalTarget) * 100).toFixed(1)) : 0;
+        const totalRewards = rawRewards.reduce((s, r) => s + Number(r.amount || 0), 0);
+
+        let suggestedTier = 'Standard Tier';
+        if (progressPercent >= 95) suggestedTier = 'Platinum Elite (5% Bonus)';
+        else if (progressPercent >= 85) suggestedTier = 'Gold Tier (3.5% Bonus)';
+        else if (progressPercent >= 70) suggestedTier = 'Silver Tier (2% Bonus)';
+        else if (progressPercent >= 50) suggestedTier = 'Bronze Tier (1% Bonus)';
+
+        this.agentData = {
+          stats: {
+            totalTarget,
+            totalCollected,
+            pendingAmount,
+            progressPercent,
+            assignedCompanyCount: formattedCompanies.length,
+            totalRewards,
+            suggestedTier
+          },
+          companies: formattedCompanies,
+          invoices: formattedInvoices,
+          collections: formattedCollections,
+          rewards: rawRewards
+        };
+
+        // Cache companies for collection dropdown
+        this.companies = formattedCompanies.map(c => ({
+          ...c,
+          agent_id: agentId,
+          agent_name: this.currentUser.name
+        }));
+
+        this.renderAgentData();
+        this.populateSelectDropdowns();
+      } else {
+        // Fallback to local Node.js Server
+        const res = await fetch(`/api/agent-dashboard/${this.currentUser.id}`);
+        if (!res.ok) throw new Error('Failed to load agent profile');
+        this.agentData = await res.json();
+        this.renderAgentData();
+      }
+    } catch (err) {
+      console.error('Error refreshing agent portal:', err);
+      this.showToast('Failed to load your agent portfolio', 'error');
+    }
+  }
+
+  renderAgentData() {
+    if (!this.agentData) return;
+
+    const { stats, companies, invoices, collections, rewards } = this.agentData;
+
+    // Agent Hero Stats
+    document.getElementById('agent-stat-target').textContent = this.formatMoney(stats.totalTarget);
+    document.getElementById('agent-stat-companies-count').textContent = stats.assignedCompanyCount;
+    document.getElementById('agent-stat-collected').textContent = this.formatMoney(stats.totalCollected);
+    document.getElementById('agent-stat-pct').textContent = `${stats.progressPercent}% Achieved`;
+    document.getElementById('agent-stat-pending').textContent = this.formatMoney(stats.pendingAmount);
+    document.getElementById('agent-stat-rewards').textContent = this.formatMoney(stats.totalRewards);
+    document.getElementById('agent-stat-tier').textContent = stats.suggestedTier;
+
+    // Agent Progress Bar
+    const bar = document.getElementById('agent-progress-bar');
+    const text = document.getElementById('agent-progress-text');
+    const amounts = document.getElementById('agent-amounts-text');
+    const pct = Math.min(100, stats.progressPercent);
+
+    if (bar) bar.style.width = `${pct}%`;
+    if (text) text.textContent = `${pct}% of Assigned Goal Achieved`;
+    if (amounts) amounts.textContent = `${this.formatMoney(stats.totalCollected)} / ${this.formatMoney(stats.totalTarget)}`;
+
+    // Agent's Assigned Companies Table
+    const compTbody = document.getElementById('agent-companies-tbody');
+    if (compTbody) {
+      if (companies.length === 0) {
+        compTbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:1.5rem; color:#64748b;">No companies assigned to you currently. Contact Prime User to assign accounts.</td></tr>';
+      } else {
+        compTbody.innerHTML = companies.map(c => `
+          <tr>
+            <td><strong>${c.name}</strong></td>
+            <td><span class="metric-badge badge-purple">${c.category || 'General'}</span></td>
+            <td>${c.contact_person || '-'}</td>
+            <td>${c.contact_phone || '-'}</td>
+            <td style="font-weight:700; font-family:'JetBrains Mono',monospace;">${this.formatMoney(c.target_amount)}</td>
+            <td style="color:#34d399; font-weight:700; font-family:'JetBrains Mono',monospace;">${this.formatMoney(c.collected_amount)}</td>
+            <td style="color:#f87171; font-weight:700; font-family:'JetBrains Mono',monospace;">${this.formatMoney(c.pending_amount)}</td>
+            <td>
+              <span class="metric-badge ${c.status === 'Completed' ? 'badge-success' : (c.status === 'In Progress' ? 'badge-info' : 'badge-warning')}">
+                ${c.status}
+              </span>
+            </td>
+            <td>
+              <button class="btn btn-sm btn-emerald" onclick="app.openRecordCollectionModal(${c.id})">
+                + Collect Money
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    // Invoices for Agent's Companies (entered by Prime User)
+    const invTbody = document.getElementById('agent-invoices-tbody');
+    if (invTbody) {
+      if (invoices.length === 0) {
+        invTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:1.5rem; color:#64748b;">No bills issued for your assigned companies yet.</td></tr>';
+      } else {
+        invTbody.innerHTML = invoices.map(inv => `
+          <tr>
+            <td><strong style="color:#38bdf8; font-family:'JetBrains Mono',monospace;">${inv.invoice_number}</strong></td>
+            <td>${inv.invoice_date}</td>
+            <td>${inv.due_date || '-'}</td>
+            <td><strong>${inv.company_name}</strong></td>
+            <td style="color:#f87171; font-weight:800; font-family:'JetBrains Mono',monospace;">${this.formatMoney(inv.amount)}</td>
+            <td style="color:#94a3b8; font-size:0.78rem;">${inv.notes || '-'}</td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    // Agent's Collection History
+    const colTbody = document.getElementById('agent-collections-tbody');
+    if (colTbody) {
+      if (collections.length === 0) {
+        colTbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:1.5rem; color:#64748b;">No payments entered yet. Click "+ Record Collection" to log money collected!</td></tr>';
+      } else {
+        colTbody.innerHTML = collections.map(c => `
+          <tr>
+            <td><strong style="color:#818cf8; font-family:'JetBrains Mono',monospace;">${c.reference_no || 'TXN-' + c.id}</strong></td>
+            <td>${c.payment_date}</td>
+            <td><strong>${c.company_name}</strong></td>
+            <td style="color:#34d399; font-weight:700; font-family:'JetBrains Mono',monospace;">${this.formatMoney(c.amount)}</td>
+            <td><span class="metric-badge badge-info">${c.payment_method}</span></td>
+            <td style="color:#94a3b8; font-size:0.78rem;">${c.notes || '-'}</td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    // Agent's Rewards
+    const rewTbody = document.getElementById('agent-rewards-tbody');
+    if (rewTbody) {
+      if (rewards.length === 0) {
+        rewTbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:1.5rem; color:#64748b;">No bonuses awarded yet. Increase your collections to unlock reward milestones!</td></tr>';
+      } else {
+        rewTbody.innerHTML = rewards.map(r => `
+          <tr>
+            <td>${r.awarded_date}</td>
+            <td><span class="metric-badge badge-warning">${r.reward_type}</span></td>
+            <td style="color:#fbbf24; font-weight:800; font-family:'JetBrains Mono',monospace;">${this.formatMoney(r.amount)}</td>
+            <td>${r.reason}</td>
+            <td><span class="metric-badge badge-success">${r.status}</span></td>
+          </tr>
+        `).join('');
+      }
+    }
+  }
+
+  // ====================================================================
+  // POPULATE DROPDOWNS & FILTERS
+  // ====================================================================
+  populateSelectDropdowns() {
+    // 1. Company dropdown in Invoice Modal (Prime User)
+    const invCompSelect = document.getElementById('inv-company-select');
+    if (invCompSelect) {
+      const cur = invCompSelect.value;
+      invCompSelect.innerHTML = '<option value="">-- Choose Company --</option>' +
+        this.companies.map(c => `
+          <option value="${c.id}" data-agent="${c.agent_name || 'Unassigned'}">
+            ${c.name} [Assigned Agent: ${c.agent_name || 'None'}]
+          </option>
+        `).join('');
+      if (cur) invCompSelect.value = cur;
+    }
+
+    // 2. Company dropdown in Record Collection Modal
+    const colCompanySelect = document.getElementById('col-company-select');
+    if (colCompanySelect) {
+      const cur = colCompanySelect.value;
+      let availableCompanies = this.companies;
+      if (this.currentUser?.role === 'agent') {
+        availableCompanies = this.companies.filter(c => Number(c.agent_id) === Number(this.currentUser.id));
+      }
+
+      colCompanySelect.innerHTML = '<option value="">-- Choose Company --</option>' + 
+        availableCompanies.map(c => `
+          <option value="${c.id}" data-agent-id="${c.agent_id || ''}" data-pending="${c.pending_amount}" data-target="${c.target_amount}">
+            ${c.name} [Pending: ${this.formatMoney(c.pending_amount)}]
+          </option>
+        `).join('');
+      if (cur) colCompanySelect.value = cur;
+    }
+
+    // 3. Agent dropdowns
+    const agentDropdowns = [
+      document.getElementById('comp-agent-assign'),
+      document.getElementById('col-agent-select'),
+      document.getElementById('reward-agent-select'),
+      document.getElementById('filter-company-agent'),
+      document.getElementById('filter-ledger-agent'),
+      document.getElementById('filter-invoice-agent')
+    ];
+
+    agentDropdowns.forEach(dd => {
+      if (!dd) return;
+      const currentVal = dd.value;
+      const isFilter = dd.id.startsWith('filter-');
+      const firstOpt = isFilter ? '<option value="">All Agents</option>' : '<option value="">-- Choose Agent --</option>';
+
+      dd.innerHTML = firstOpt + this.agentShare.map(a => `
+        <option value="${a.id}">${a.name} (${a.percentageOfTotal}% share)</option>
+      `).join('');
+
+      if (currentVal) dd.value = currentVal;
+    });
+
+    // 4. Company filter in invoice tab
+    const filterInvComp = document.getElementById('filter-invoice-company');
+    if (filterInvComp) {
+      const cur = filterInvComp.value;
+      filterInvComp.innerHTML = '<option value="">All Companies</option>' +
+        this.companies.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+      if (cur) filterInvComp.value = cur;
+    }
+  }
+
+  setupFilters() {
+    document.getElementById('invoice-search')?.addEventListener('input', () => this.renderInvoicesTable());
+    document.getElementById('filter-invoice-company')?.addEventListener('change', () => this.renderInvoicesTable());
+    document.getElementById('filter-invoice-agent')?.addEventListener('change', () => this.renderInvoicesTable());
+
+    document.getElementById('company-search')?.addEventListener('input', () => this.renderCompaniesTable());
+    document.getElementById('filter-company-agent')?.addEventListener('change', () => this.renderCompaniesTable());
+    document.getElementById('filter-company-status')?.addEventListener('change', () => this.renderCompaniesTable());
+
+    document.getElementById('ledger-search')?.addEventListener('input', () => this.renderLedgerTable());
+    document.getElementById('filter-ledger-agent')?.addEventListener('change', () => this.renderLedgerTable());
+
+    document.getElementById('inv-company-select')?.addEventListener('change', (e) => {
+      const opt = e.target.selectedOptions[0];
+      const agent = opt?.getAttribute('data-agent');
+      const help = document.getElementById('inv-company-agent-help');
+      if (agent && help) {
+        help.textContent = `Assigned Collector Agent: ${agent}. This bill will automatically increase this agent's target.`;
+      }
+    });
+
+    document.getElementById('col-company-select')?.addEventListener('change', (e) => {
+      const opt = e.target.selectedOptions[0];
+      if (!opt || !opt.value) {
+        document.getElementById('col-company-info').textContent = 'Select a company to view remaining pending dues';
+        return;
+      }
+      const agentId = opt.getAttribute('data-agent-id');
+      const pending = opt.getAttribute('data-pending');
+      const target = opt.getAttribute('data-target');
+
+      if (agentId && document.getElementById('col-agent-select')) {
+        document.getElementById('col-agent-select').value = agentId;
+      }
+
+      document.getElementById('col-company-info').innerHTML = `
+        Total Invoiced Target: <strong>${this.formatMoney(target)}</strong> | 
+        Pending Balance: <strong style="color:#f87171;">${this.formatMoney(pending)}</strong>
+      `;
+
+      const amountInput = document.getElementById('col-amount');
+      if (amountInput && !amountInput.value) {
+        amountInput.placeholder = `e.g. ${pending}`;
+      }
+    });
+
+    document.getElementById('reward-agent-select')?.addEventListener('change', (e) => {
+      const agentId = Number(e.target.value);
+      const agent = this.agentShare.find(a => a.id === agentId);
+      const hint = document.getElementById('reward-agent-hint');
+      if (agent && hint) {
+        hint.innerHTML = `
+          <strong>${agent.name}</strong> collected <strong>${this.formatMoney(agent.totalCollected)}</strong> (${agent.targetAchievementRate}% of target). 
+          Suggested: <strong style="color:#fbbf24;">${agent.suggestedTier} (${this.formatMoney(agent.suggestedBonus)})</strong>
+        `;
+        const amtInput = document.getElementById('reward-amount');
+        if (amtInput && !amtInput.value && agent.suggestedBonus > 0) {
+          amtInput.value = agent.suggestedBonus;
+        }
+      }
+    });
+  }
+
+  // ====================================================================
+  // FORM SUBMISSIONS (HYBRID SUPABASE & LOCAL REST)
+  // ====================================================================
+  setupForms() {
+    // 0. Login Forms
+    document.getElementById('form-login-prime')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const u = document.getElementById('prime-username').value;
+      const p = document.getElementById('prime-password').value;
+      await this.login('prime', u, p);
+    });
+
+    document.getElementById('form-login-agent')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const a = document.getElementById('agent-select-login').value;
+      const p = document.getElementById('agent-password').value;
+      if (!a) {
+        this.showToast('Please select your agent profile', 'error');
+        return;
+      }
+      await this.login('agent', a, p);
+    });
+
+    // 1. Prime User Adds Company Bill / Invoice Form
+    document.getElementById('form-invoice')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const companyId = Number(document.getElementById('inv-company-select').value);
+      const invoiceNumber = document.getElementById('inv-number').value.trim();
+      const amount = parseFloat(document.getElementById('inv-amount').value);
+      const invoiceDate = document.getElementById('inv-date').value;
+      const dueDate = document.getElementById('inv-due-date').value || null;
+      const notes = document.getElementById('inv-notes').value.trim();
+
+      try {
+        if (this.supabase) {
+          // Direct Supabase Insert
+          const { error } = await this.supabase.from('invoices').insert([{
+            company_id: companyId,
+            invoice_number: invoiceNumber,
+            invoice_date: invoiceDate,
+            due_date: dueDate,
+            amount,
+            notes,
+            created_by: 'Prime User'
+          }]);
+          if (error) throw new Error(error.message);
+
+          // Update company target_amount in database
+          const { data: invList } = await this.supabase.from('invoices').select('amount').eq('company_id', companyId);
+          const newTarget = (invList || []).reduce((s, i) => s + Number(i.amount || 0), 0);
+          await this.supabase.from('companies').update({ target_amount: newTarget }).eq('id', companyId);
+        } else {
+          // Local Node.js REST
+          const res = await fetch('/api/invoices', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              company_id: companyId,
+              invoice_number: invoiceNumber,
+              invoice_date: invoiceDate,
+              due_date: dueDate,
+              amount,
+              notes,
+              created_by: 'Prime User'
+            })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed to issue invoice');
+        }
+
+        this.showToast(`Invoice ${invoiceNumber} (${this.formatMoney(amount)}) issued! Company dues updated.`);
+        this.closeModal('modal-invoice');
+        document.getElementById('form-invoice').reset();
+        await this.refreshAllPrimeData();
+      } catch (err) {
+        this.showToast(err.message, 'error');
+      }
+    });
+
+    // 2. Record Collection Form (Agent or Prime User)
+    document.getElementById('form-record-collection')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const companyId = Number(document.getElementById('col-company-select').value);
+      let agentId = document.getElementById('col-agent-select')?.value ? Number(document.getElementById('col-agent-select').value) : null;
+      let recorder = 'Prime User';
+
+      if (this.currentUser?.role === 'agent') {
+        agentId = this.currentUser.id;
+        recorder = `Agent: ${this.currentUser.name}`;
+      }
+
+      const amount = parseFloat(document.getElementById('col-amount').value);
+      const paymentDate = document.getElementById('col-date').value || new Date().toISOString().split('T')[0];
+      const paymentMethod = document.getElementById('col-method').value;
+      const refNo = document.getElementById('col-ref').value.trim();
+      const notes = document.getElementById('col-notes').value.trim();
+
+      try {
+        if (this.supabase) {
+          // Direct Supabase Insert
+          const { error } = await this.supabase.from('collections').insert([{
+            company_id: companyId,
+            agent_id: agentId,
+            amount,
+            payment_date: paymentDate,
+            payment_method: paymentMethod,
+            reference_no: refNo,
+            notes,
+            recorded_by: recorder
+          }]);
+          if (error) throw new Error(error.message);
+
+          // Update company status
+          const { data: colList } = await this.supabase.from('collections').select('amount').eq('company_id', companyId);
+          const { data: comp } = await this.supabase.from('companies').select('target_amount').eq('id', companyId).single();
+          const collected = (colList || []).reduce((s, c) => s + Number(c.amount || 0), 0);
+          const target = comp?.target_amount || 0;
+          const status = (collected >= target && target > 0) ? 'Completed' : (collected > 0 ? 'In Progress' : 'Pending');
+          await this.supabase.from('companies').update({ status }).eq('id', companyId);
+        } else {
+          // Local Node.js REST
+          const res = await fetch('/api/collections', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              company_id: companyId,
+              agent_id: agentId,
+              amount,
+              payment_date: paymentDate,
+              payment_method: paymentMethod,
+              reference_no: refNo,
+              notes,
+              recorded_by: recorder
+            })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed to record collection');
+        }
+
+        this.showToast(`Collection of ${this.formatMoney(amount)} successfully recorded!`);
+        this.closeModal('modal-record-collection');
+        document.getElementById('form-record-collection').reset();
+
+        if (this.currentUser?.role === 'prime') {
+          await this.refreshAllPrimeData();
+        } else {
+          await this.refreshAgentData();
+        }
+      } catch (err) {
+        this.showToast(err.message, 'error');
+      }
+    });
+
+    // 3. Company Form
+    document.getElementById('form-company')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const editId = document.getElementById('company-edit-id').value;
+      const name = document.getElementById('comp-name').value.trim();
+      const category = document.getElementById('comp-category').value.trim();
+      const agentId = document.getElementById('comp-agent-assign').value ? Number(document.getElementById('comp-agent-assign').value) : null;
+      const contactPerson = document.getElementById('comp-contact-person').value.trim();
+      const contactPhone = document.getElementById('comp-contact-phone').value.trim();
+      const notes = document.getElementById('comp-notes').value.trim();
+
+      const payload = {
+        name,
+        category,
+        agent_id: agentId,
+        contact_person: contactPerson,
+        contact_phone: contactPhone,
+        notes
+      };
+
+      try {
+        if (this.supabase) {
+          if (editId) {
+            const { error } = await this.supabase.from('companies').update(payload).eq('id', editId);
+            if (error) throw new Error(error.message);
+          } else {
+            const { error } = await this.supabase.from('companies').insert([{
+              ...payload,
+              target_amount: 0,
+              status: 'Pending'
+            }]);
+            if (error) throw new Error(error.message);
+          }
+        } else {
+          const url = editId ? `/api/companies/${editId}` : '/api/companies';
+          const method = editId ? 'PUT' : 'POST';
+          const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to save company');
+          }
+        }
+
+        this.showToast(editId ? `Company "${name}" updated!` : `Company "${name}" added!`);
+        this.closeModal('modal-company');
+        document.getElementById('form-company').reset();
+        await this.refreshAllPrimeData();
+      } catch (err) {
+        this.showToast(err.message, 'error');
+      }
+    });
+
+    // 4. Agent Form
+    document.getElementById('form-agent')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const editId = document.getElementById('agent-edit-id').value;
+      const name = document.getElementById('agent-name').value.trim();
+      const email = document.getElementById('agent-email').value.trim();
+      const phone = document.getElementById('agent-phone').value.trim();
+      const password = document.getElementById('agent-password-input').value.trim() || 'agent123';
+      const colorInput = document.querySelector('input[name="agent-color"]:checked');
+      const badgeColor = colorInput ? colorInput.value : '#3b82f6';
+
+      const payload = { name, email, phone, badge_color: badgeColor, password };
+
+      try {
+        if (this.supabase) {
+          if (editId) {
+            const { error } = await this.supabase.from('agents').update(payload).eq('id', editId);
+            if (error) throw new Error(error.message);
+          } else {
+            const { error } = await this.supabase.from('agents').insert([{ ...payload, status: 'Active' }]);
+            if (error) throw new Error(error.message);
+          }
+        } else {
+          const url = editId ? `/api/agents/${editId}` : '/api/agents';
+          const method = editId ? 'PUT' : 'POST';
+          const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to save agent');
+          }
+        }
+
+        this.showToast(editId ? `Agent "${name}" updated!` : `Agent "${name}" added!`);
+        this.closeModal('modal-agent');
+        document.getElementById('form-agent').reset();
+        await this.loadAgentsForAuth();
+        await this.refreshAllPrimeData();
+      } catch (err) {
+        this.showToast(err.message, 'error');
+      }
+    });
+
+    // 5. Reward Form
+    document.getElementById('form-reward')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const agentId = Number(document.getElementById('reward-agent-select').value);
+      const amount = parseFloat(document.getElementById('reward-amount').value);
+      const rewardType = document.getElementById('reward-type').value;
+      const status = document.getElementById('reward-status').value;
+      const awardedDate = document.getElementById('reward-date').value;
+      const reason = document.getElementById('reward-reason').value.trim();
+
+      const payload = {
+        agent_id: agentId,
+        amount,
+        reward_type: rewardType,
+        status,
+        awarded_date: awardedDate,
+        reason
+      };
+
+      try {
+        if (this.supabase) {
+          const { error } = await this.supabase.from('rewards').insert([payload]);
+          if (error) throw new Error(error.message);
+        } else {
+          const res = await fetch('/api/rewards', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to grant reward');
+          }
+        }
+
+        this.showToast(`Reward of ${this.formatMoney(amount)} granted!`);
+        this.closeModal('modal-reward');
+        document.getElementById('form-reward').reset();
+        await this.refreshAllPrimeData();
+      } catch (err) {
+        this.showToast(err.message, 'error');
+      }
+    });
+  }
+
+  // ====================================================================
+  // MODAL OPENERS & ENTITY ACTIONS
+  // ====================================================================
+  openAddInvoiceModal(companyId = null) {
+    document.getElementById('form-invoice').reset();
+    document.getElementById('inv-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('inv-number').value = `INV-${Date.now().toString().slice(-6)}`;
+
+    if (companyId) {
+      document.getElementById('inv-company-select').value = companyId;
+      document.getElementById('inv-company-select').dispatchEvent(new Event('change'));
+    }
+
+    this.openModal('modal-invoice');
+  }
+
+  quickAddInvoiceForCompany(companyId) {
+    this.openAddInvoiceModal(companyId);
+  }
+
+  async deleteInvoice(invoiceId) {
+    if (confirm('Delete this company bill/invoice? The company target and assigned agent target will be updated.')) {
+      try {
+        if (this.supabase) {
+          const inv = this.invoices.find(i => Number(i.id) === Number(invoiceId));
+          const companyId = inv?.company_id;
+          const { error } = await this.supabase.from('invoices').delete().eq('id', invoiceId);
+          if (error) throw new Error(error.message);
+
+          if (companyId) {
+            const { data: invList } = await this.supabase.from('invoices').select('amount').eq('company_id', companyId);
+            const newTarget = (invList || []).reduce((s, i) => s + Number(i.amount || 0), 0);
+            await this.supabase.from('companies').update({ target_amount: newTarget }).eq('id', companyId);
+          }
+        } else {
+          const res = await fetch(`/api/invoices/${invoiceId}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete invoice');
+        }
+
+        this.showToast('Invoice deleted and company bill updated.');
+        await this.refreshAllPrimeData();
+      } catch (err) {
+        this.showToast(err.message || 'Failed to delete invoice', 'error');
+      }
+    }
+  }
+
+  openRecordCollectionModal(companyId = null) {
+    document.getElementById('form-record-collection').reset();
+    document.getElementById('col-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('col-ref').value = `TXN-${Date.now().toString().slice(-6)}`;
+
+    this.populateSelectDropdowns();
+
+    const titleEl = document.getElementById('record-collection-modal-title');
+    const agentGroup = document.getElementById('col-agent-select-group');
+
+    if (this.currentUser?.role === 'agent') {
+      titleEl.textContent = `Record Collection (${this.currentUser.name})`;
+      if (agentGroup) agentGroup.style.display = 'none';
+    } else {
+      titleEl.textContent = 'Record Company Collection';
+      if (agentGroup) agentGroup.style.display = 'block';
+    }
+
+    if (companyId) {
+      document.getElementById('col-company-select').value = companyId;
+      document.getElementById('col-company-select').dispatchEvent(new Event('change'));
+    } else {
+      document.getElementById('col-company-info').textContent = 'Select a company to view remaining pending dues';
+    }
+
+    this.openModal('modal-record-collection');
+  }
+
+  openAddCompanyModal() {
+    document.getElementById('form-company').reset();
+    document.getElementById('company-edit-id').value = '';
+    document.getElementById('modal-company-title').textContent = 'Add New Company';
+    document.getElementById('btn-save-company').textContent = 'Save Company';
+    this.openModal('modal-company');
+  }
+
+  editCompany(companyId) {
+    const comp = this.companies.find(c => c.id === companyId);
+    if (!comp) return;
+
+    document.getElementById('company-edit-id').value = comp.id;
+    document.getElementById('comp-name').value = comp.name;
+    document.getElementById('comp-category').value = comp.category || '';
+    document.getElementById('comp-agent-assign').value = comp.agent_id || '';
+    document.getElementById('comp-contact-person').value = comp.contact_person || '';
+    document.getElementById('comp-contact-phone').value = comp.contact_phone || '';
+    document.getElementById('comp-notes').value = comp.notes || '';
+
+    document.getElementById('modal-company-title').textContent = `Edit Company: ${comp.name}`;
+    document.getElementById('btn-save-company').textContent = 'Update Company';
+    this.openModal('modal-company');
+  }
+
+  async deleteCompany(companyId) {
+    const comp = this.companies.find(c => c.id === companyId);
+    const name = comp ? comp.name : 'this company';
+    if (confirm(`Are you sure you want to delete "${name}"? All associated invoices and collections will be removed.`)) {
+      try {
+        if (this.supabase) {
+          const { error } = await this.supabase.from('companies').delete().eq('id', companyId);
+          if (error) throw new Error(error.message);
+        } else {
+          const res = await fetch(`/api/companies/${companyId}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete company');
+        }
+        this.showToast(`Company "${name}" deleted.`);
+        await this.refreshAllPrimeData();
+      } catch (err) {
+        this.showToast(err.message || 'Failed to delete company', 'error');
+      }
+    }
+  }
+
+  openAddAgentModal() {
+    document.getElementById('form-agent').reset();
+    document.getElementById('agent-edit-id').value = '';
+    document.getElementById('modal-agent-title').textContent = 'Add New Collection Agent';
+    document.getElementById('btn-save-agent').textContent = 'Save Agent';
+    this.openModal('modal-agent');
+  }
+
+  editAgent(agentId) {
+    const agent = this.agentShare.find(a => a.id === agentId);
+    if (!agent) return;
+
+    document.getElementById('agent-edit-id').value = agent.id;
+    document.getElementById('agent-name').value = agent.name;
+    document.getElementById('agent-email').value = agent.email || '';
+    document.getElementById('agent-phone').value = agent.phone || '';
+
+    const colorRadio = document.querySelector(`input[name="agent-color"][value="${agent.badgeColor}"]`);
+    if (colorRadio) colorRadio.checked = true;
+
+    document.getElementById('modal-agent-title').textContent = `Edit Agent: ${agent.name}`;
+    document.getElementById('btn-save-agent').textContent = 'Update Agent';
+    this.openModal('modal-agent');
+  }
+
+  async deleteAgent(agentId) {
+    const agent = this.agentShare.find(a => a.id === agentId);
+    const name = agent ? agent.name : 'this agent';
+    if (confirm(`Are you sure you want to delete agent "${name}"? Assigned companies will become unassigned.`)) {
+      try {
+        if (this.supabase) {
+          await this.supabase.from('companies').update({ agent_id: null }).eq('agent_id', agentId);
+          const { error } = await this.supabase.from('agents').delete().eq('id', agentId);
+          if (error) throw new Error(error.message);
+        } else {
+          const res = await fetch(`/api/agents/${agentId}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete agent');
+        }
+        this.showToast(`Agent "${name}" deleted.`);
+        await this.loadAgentsForAuth();
+        await this.refreshAllPrimeData();
+      } catch (err) {
+        this.showToast(err.message || 'Failed to delete agent', 'error');
+      }
+    }
+  }
+
+  openGrantRewardModal(prefillAgentId = null, prefillAmount = null) {
+    document.getElementById('form-reward').reset();
+    document.getElementById('reward-date').value = new Date().toISOString().split('T')[0];
+
+    if (prefillAgentId) {
+      document.getElementById('reward-agent-select').value = prefillAgentId;
+      document.getElementById('reward-agent-select').dispatchEvent(new Event('change'));
+    } else {
+      document.getElementById('reward-agent-hint').textContent = 'Select an agent to see their collection performance and suggested bonus';
+    }
+
+    if (prefillAmount) {
+      document.getElementById('reward-amount').value = prefillAmount;
+    }
+
+    this.openModal('modal-reward');
+  }
+
+  quickRewardAgent(agentId, agentName, suggestedBonus) {
+    this.openGrantRewardModal(agentId, suggestedBonus || 1000);
+    document.getElementById('reward-reason').value = `Awarded by Prime User for stellar collection performance`;
+  }
+
+  async markRewardPaid(rewardId) {
+    try {
+      if (this.supabase) {
+        const { error } = await this.supabase.from('rewards').update({ status: 'Paid' }).eq('id', rewardId);
+        if (error) throw new Error(error.message);
+      } else {
+        const res = await fetch(`/api/rewards/${rewardId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'Paid' })
+        });
+        if (!res.ok) throw new Error('Failed to update reward');
+      }
+      this.showToast('Reward marked as Paid!');
+      await this.refreshAllPrimeData();
+    } catch (err) {
+      this.showToast(err.message || 'Failed to update reward status', 'error');
+    }
+  }
+
+  async deleteReward(rewardId) {
+    if (confirm('Delete this reward record?')) {
+      try {
+        if (this.supabase) {
+          const { error } = await this.supabase.from('rewards').delete().eq('id', rewardId);
+          if (error) throw new Error(error.message);
+        } else {
+          const res = await fetch(`/api/rewards/${rewardId}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete reward');
+        }
+        this.showToast('Reward deleted.');
+        await this.refreshAllPrimeData();
+      } catch (err) {
+        this.showToast(err.message || 'Failed to delete reward', 'error');
+      }
+    }
+  }
+
+  async deleteCollection(collectionId) {
+    if (confirm('Are you sure you want to remove this collection entry? Company balance will be adjusted accordingly.')) {
+      try {
+        if (this.supabase) {
+          const col = this.collections.find(c => Number(c.id) === Number(collectionId));
+          const companyId = col?.company_id;
+          const { error } = await this.supabase.from('collections').delete().eq('id', collectionId);
+          if (error) throw new Error(error.message);
+
+          if (companyId) {
+            const { data: colList } = await this.supabase.from('collections').select('amount').eq('company_id', companyId);
+            const { data: comp } = await this.supabase.from('companies').select('target_amount').eq('id', companyId).single();
+            const collected = (colList || []).reduce((s, c) => s + Number(c.amount || 0), 0);
+            const target = comp?.target_amount || 0;
+            const status = (collected >= target && target > 0) ? 'Completed' : (collected > 0 ? 'In Progress' : 'Pending');
+            await this.supabase.from('companies').update({ status }).eq('id', companyId);
+          }
+        } else {
+          const res = await fetch(`/api/collections/${collectionId}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete collection');
+        }
+        this.showToast('Collection record deleted.');
+        if (this.currentUser?.role === 'prime') {
+          await this.refreshAllPrimeData();
+        } else {
+          await this.refreshAgentData();
+        }
+      } catch (err) {
+        this.showToast(err.message || 'Failed to delete collection record', 'error');
+      }
+    }
+  }
+}
+
+// Global App Instance
+let app;
+window.addEventListener('DOMContentLoaded', () => {
+  app = new CollectionApp();
+});
