@@ -15,7 +15,9 @@ if (fs.existsSync(envPath) && typeof process.loadEnvFile === 'function') {
 const db = require('./db.js');
 
 let PORT = parseInt(process.env.PORT || '3050', 10);
-const PUBLIC_DIR = path.join(__dirname, 'public');
+const PUBLIC_DIR = fs.existsSync(path.join(__dirname, 'public', 'index.html'))
+  ? path.join(__dirname, 'public')
+  : __dirname;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
