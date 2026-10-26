@@ -86,8 +86,9 @@ class CollectionApp {
     }
 
     // Determine if on GitHub Pages or static host where Supabase is needed
-    const isStaticHosted = window.location.hostname.includes('github.io') ||
-      (!['localhost', '127.0.0.1'].includes(window.location.hostname) && window.location.protocol !== 'http:');
+    const host = window.location?.hostname || '';
+    const isStaticHosted = host.includes('github.io') ||
+      (!['localhost', '127.0.0.1'].includes(host) && window.location?.protocol !== 'http:');
 
     if (isStaticHosted && (!this.supabaseUrl || !this.supabaseKey)) {
       this.updateDbStatusUI(false, 'Supabase Required');
@@ -286,13 +287,17 @@ class CollectionApp {
   }
 
   showLoginOverlay() {
-    document.getElementById('auth-overlay').style.display = 'flex';
-    document.getElementById('app').style.display = 'none';
+    const auth = document.getElementById('auth-overlay');
+    const main = document.getElementById('main-app') || document.getElementById('app');
+    if (auth) auth.style.display = 'flex';
+    if (main) main.style.display = 'none';
   }
 
   hideLoginOverlay() {
-    document.getElementById('auth-overlay').style.display = 'none';
-    document.getElementById('app').style.display = 'flex';
+    const auth = document.getElementById('auth-overlay');
+    const main = document.getElementById('main-app') || document.getElementById('app');
+    if (auth) auth.style.display = 'none';
+    if (main) main.style.display = 'flex';
   }
 
   setLoginRole(role) {
@@ -918,7 +923,9 @@ class CollectionApp {
       ctx.fillStyle = '#64748b';
       ctx.font = '14px Inter, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('No collection data recorded', centerX, centerY);
+      if (typeof ctx.fillText === 'function') {
+        ctx.fillText('No collection data recorded', centerX, centerY);
+      }
       return;
     }
 
@@ -1597,7 +1604,7 @@ class CollectionApp {
   }
 
   renderAgentData() {
-    if (!this.agentData) return;
+    if (!this.agentData || !this.agentData.stats) return;
 
     const { stats, companies, invoices, collections, rewards } = this.agentData;
 
@@ -1755,7 +1762,7 @@ class CollectionApp {
     agentDropdowns.forEach(dd => {
       if (!dd) return;
       const currentVal = dd.value;
-      const isFilter = dd.id.startsWith('filter-');
+      const isFilter = Boolean(dd.id && dd.id.startsWith('filter-'));
       const firstOpt = isFilter ? '<option value="">All Agents</option>' : '<option value="">-- Choose Agent --</option>';
 
       dd.innerHTML = firstOpt + this.agentShare.map(a => `
@@ -2403,8 +2410,9 @@ class CollectionApp {
 // Global App Instance & Resilient Initialization
 let app;
 function initNexusApp() {
-  if (!window.app) {
+  if (!window.nexusApp) {
     app = new CollectionApp();
+    window.nexusApp = app;
     window.app = app;
   }
 }

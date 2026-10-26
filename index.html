@@ -95,58 +95,84 @@
       }
     }
 
+    function getAppInstance() {
+      if (window.nexusApp && typeof window.nexusApp.login === 'function') return window.nexusApp;
+      if (window.app && typeof window.app.login === 'function') return window.app;
+      return null;
+    }
+
     function quickLoginPrime() {
-      if (window.app && typeof window.app.quickLoginPrime === 'function') {
-        window.app.quickLoginPrime();
+      const appInstance = getAppInstance();
+      if (appInstance) {
+        appInstance.quickLoginPrime();
       } else {
         const primeUser = { id: 0, name: 'Master Administrator', role: 'prime', email: 'admin@nexus.com' };
         localStorage.setItem('nexus_user', JSON.stringify(primeUser));
+        const auth = document.getElementById('auth-overlay');
+        const main = document.getElementById('main-app') || document.getElementById('app');
+        if (auth) auth.style.display = 'none';
+        if (main) main.style.display = 'flex';
         location.reload();
       }
     }
 
     function submitPrimeLogin(e) {
-      if (e) e.preventDefault();
+      if (e) { e.preventDefault(); e.stopPropagation(); }
       const u = document.getElementById('prime-username')?.value || 'prime';
       const p = document.getElementById('prime-password')?.value || 'admin123';
-      if (window.app && typeof window.app.login === 'function') {
-        window.app.login('prime', u, p);
+      const appInstance = getAppInstance();
+      if (appInstance) {
+        appInstance.login('prime', u, p);
       } else {
         const primeUser = { id: 0, name: 'Master Administrator', role: 'prime', email: 'admin@nexus.com' };
         localStorage.setItem('nexus_user', JSON.stringify(primeUser));
+        const auth = document.getElementById('auth-overlay');
+        const main = document.getElementById('main-app') || document.getElementById('app');
+        if (auth) auth.style.display = 'none';
+        if (main) main.style.display = 'flex';
         location.reload();
       }
     }
 
     function quickLoginAgent(agentId) {
-      if (window.app && typeof window.app.quickLoginAgent === 'function') {
-        window.app.quickLoginAgent(agentId);
+      const appInstance = getAppInstance();
+      if (appInstance) {
+        appInstance.quickLoginAgent(agentId);
       } else {
         const ag = DEFAULT_AGENTS.find(a => a.id === Number(agentId)) || DEFAULT_AGENTS[0];
         localStorage.setItem('nexus_user', JSON.stringify(ag));
+        const auth = document.getElementById('auth-overlay');
+        const main = document.getElementById('main-app') || document.getElementById('app');
+        if (auth) auth.style.display = 'none';
+        if (main) main.style.display = 'flex';
         location.reload();
       }
     }
 
     function submitAgentLogin(e) {
-      if (e) e.preventDefault();
+      if (e) { e.preventDefault(); e.stopPropagation(); }
       const agentId = document.getElementById('agent-select-login')?.value;
       const pwd = document.getElementById('agent-password')?.value || 'agent123';
       if (!agentId) {
         alert('Please select an agent profile');
         return;
       }
-      if (window.app && typeof window.app.login === 'function') {
-        window.app.login('agent', agentId, pwd);
+      const appInstance = getAppInstance();
+      if (appInstance) {
+        appInstance.login('agent', agentId, pwd);
       } else {
         const ag = DEFAULT_AGENTS.find(a => a.id === Number(agentId)) || DEFAULT_AGENTS[0];
         localStorage.setItem('nexus_user', JSON.stringify(ag));
+        const auth = document.getElementById('auth-overlay');
+        const main = document.getElementById('main-app') || document.getElementById('app');
+        if (auth) auth.style.display = 'none';
+        if (main) main.style.display = 'flex';
         location.reload();
       }
     }
 
     async function saveSupabaseConfig(e) {
-      if (e) e.preventDefault();
+      if (e) { e.preventDefault(); e.stopPropagation(); }
       const urlEl = document.getElementById('cfg-supabase-url');
       const keyEl = document.getElementById('cfg-supabase-key');
       const url = (urlEl?.value || '').trim();
@@ -180,18 +206,26 @@
 
         updateDbStatusUI(true, 'Supabase Cloud');
         closeSupabaseConfigModal();
-        alert('⚡ Connected to Supabase Cloud Database successfully!');
 
-        if (window.app) {
-          window.app.supabaseUrl = url;
-          window.app.supabaseKey = key;
-          window.app.supabase = client;
-          await window.app.loadAgentsForAuth();
-          if (window.app.currentUser) {
-            if (window.app.currentUser.role === 'prime') await window.app.refreshAllPrimeData();
-            else await window.app.refreshAgentData();
+        const appInstance = getAppInstance();
+        if (appInstance) {
+          appInstance.supabaseUrl = url;
+          appInstance.supabaseKey = key;
+          appInstance.supabase = client;
+          if (typeof appInstance.loadAgentsForAuth === 'function') {
+            await appInstance.loadAgentsForAuth();
+          }
+          if (appInstance.currentUser) {
+            if (appInstance.currentUser.role === 'prime') await appInstance.refreshAllPrimeData();
+            else await appInstance.refreshAgentData();
+          }
+          if (typeof appInstance.showToast === 'function') {
+            appInstance.showToast('⚡ Connected to Supabase Cloud Database successfully!');
+          } else {
+            alert('⚡ Connected to Supabase Cloud Database successfully!');
           }
         } else {
+          alert('⚡ Connected to Supabase Cloud Database successfully!');
           location.reload();
         }
       } catch (err) {
@@ -210,19 +244,42 @@
         localStorage.removeItem('nexus_supabase_key');
         updateDbStatusUI(false, 'Not Connected');
         closeSupabaseConfigModal();
-        if (window.app) {
-          window.app.supabase = null;
-          window.app.supabaseUrl = '';
-          window.app.supabaseKey = '';
+        const appInstance = getAppInstance();
+        if (appInstance) {
+          appInstance.supabase = null;
+          appInstance.supabaseUrl = '';
+          appInstance.supabaseKey = '';
+          if (typeof appInstance.showToast === 'function') {
+            appInstance.showToast('Supabase disconnected.');
+          }
         }
         alert('Supabase disconnected.');
       }
     }
 
+    function logoutUser() {
+      const appInstance = getAppInstance();
+      if (appInstance && typeof appInstance.logout === 'function') {
+        appInstance.logout();
+      } else {
+        localStorage.removeItem('nexus_user');
+        location.reload();
+      }
+    }
+
     // Expose globals
+    window.getAppInstance = getAppInstance;
     window.openSupabaseConfigModal = openSupabaseConfigModal;
     window.closeSupabaseConfigModal = closeSupabaseConfigModal;
     window.updateDbStatusUI = updateDbStatusUI;
+    window.setLoginRole = setLoginRole;
+    window.quickLoginPrime = quickLoginPrime;
+    window.submitPrimeLogin = submitPrimeLogin;
+    window.quickLoginAgent = quickLoginAgent;
+    window.submitAgentLogin = submitAgentLogin;
+    window.saveSupabaseConfig = saveSupabaseConfig;
+    window.disconnectSupabase = disconnectSupabase;
+    window.logoutUser = logoutUser;
     window.setLoginRole = setLoginRole;
     window.quickLoginPrime = quickLoginPrime;
     window.submitPrimeLogin = submitPrimeLogin;
@@ -385,7 +442,7 @@
   </div>
 
   <!-- ================= MAIN APPLICATION WRAPPER ================= -->
-  <div id="app" class="app-container" style="display: none;">
+  <div id="main-app" class="app-container" style="display: none;">
     <!-- Top Navigation Bar -->
     <header class="top-nav">
       <div class="nav-brand">
@@ -428,7 +485,7 @@
           Export CSV
         </button>
 
-        <button class="btn btn-outline btn-sm" id="btn-logout" onclick="app.logout()" title="Switch Account / Logout">
+        <button class="btn btn-outline btn-sm" id="btn-logout" onclick="logoutUser()" title="Switch Account / Logout">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
           Logout
         </button>
