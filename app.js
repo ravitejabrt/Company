@@ -124,11 +124,15 @@ class CollectionApp {
   }
 
   openSupabaseConfigModal() {
-    const urlInput = document.getElementById('cfg-supabase-url');
-    const keyInput = document.getElementById('cfg-supabase-key');
-    if (urlInput) urlInput.value = localStorage.getItem('nexus_supabase_url') || '';
-    if (keyInput) keyInput.value = localStorage.getItem('nexus_supabase_key') || '';
-    this.openModal('modal-supabase-config');
+    if (typeof window.openSupabaseConfigModal === 'function') {
+      window.openSupabaseConfigModal();
+    } else {
+      const urlInput = document.getElementById('cfg-supabase-url');
+      const keyInput = document.getElementById('cfg-supabase-key');
+      if (urlInput) urlInput.value = localStorage.getItem('nexus_supabase_url') || '';
+      if (keyInput) keyInput.value = localStorage.getItem('nexus_supabase_key') || '';
+      this.openModal('modal-supabase-config');
+    }
   }
 
   disconnectSupabase() {
@@ -550,6 +554,14 @@ class CollectionApp {
 
     // Agent Action Buttons
     document.getElementById('btn-agent-record-collection')?.addEventListener('click', () => this.openRecordCollectionModal());
+
+    // Supabase Connect Triggers
+    document.getElementById('auth-db-banner')?.addEventListener('click', () => this.openSupabaseConfigModal());
+    document.getElementById('auth-db-action-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.openSupabaseConfigModal();
+    });
+    document.getElementById('db-status-badge')?.addEventListener('click', () => this.openSupabaseConfigModal());
 
     // Export CSV (Dual Mode: Browser CSV download or server endpoint)
     document.getElementById('btn-export-csv')?.addEventListener('click', () => {
@@ -2314,8 +2326,17 @@ class CollectionApp {
   }
 }
 
-// Global App Instance
+// Global App Instance & Resilient Initialization
 let app;
-window.addEventListener('DOMContentLoaded', () => {
-  app = new CollectionApp();
-});
+function initNexusApp() {
+  if (!window.app) {
+    app = new CollectionApp();
+    window.app = app;
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initNexusApp);
+} else {
+  initNexusApp();
+}

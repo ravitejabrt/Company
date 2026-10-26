@@ -10,17 +10,35 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <!-- Supabase Official JavaScript Client for Direct Serverless Execution -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    function openSupabaseConfigModal() {
+      const modal = document.getElementById('modal-supabase-config');
+      if (modal) {
+        modal.classList.add('open');
+        const urlInput = document.getElementById('cfg-supabase-url');
+        const keyInput = document.getElementById('cfg-supabase-key');
+        if (urlInput) urlInput.value = localStorage.getItem('nexus_supabase_url') || '';
+        if (keyInput) keyInput.value = localStorage.getItem('nexus_supabase_key') || '';
+      }
+    }
+    function closeSupabaseConfigModal() {
+      const modal = document.getElementById('modal-supabase-config');
+      if (modal) modal.classList.remove('open');
+    }
+    window.openSupabaseConfigModal = openSupabaseConfigModal;
+    window.closeSupabaseConfigModal = closeSupabaseConfigModal;
+  </script>
 </head>
 <body>
   <!-- ================= SUPABASE DATABASE CONFIGURATION MODAL ================= -->
-  <div id="modal-supabase-config" class="modal-backdrop">
+  <div id="modal-supabase-config" class="modal-backdrop" style="z-index: 10000;">
     <div class="modal-dialog">
       <div class="modal-header">
         <div class="modal-title-wrap">
           <span class="modal-icon">⚡</span>
           <h3>Connect Supabase Database</h3>
         </div>
-        <button class="btn-close" onclick="app.closeModal('modal-supabase-config')">&times;</button>
+        <button type="button" class="btn-close" onclick="closeSupabaseConfigModal()">&times;</button>
       </div>
       <form id="form-supabase-config" class="modal-form">
         <div class="auth-role-desc">
@@ -40,9 +58,9 @@
         </div>
 
         <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
-          <button type="button" class="btn btn-outline-danger btn-sm" id="btn-disconnect-supabase" onclick="app.disconnectSupabase()">Clear / Reset</button>
+          <button type="button" class="btn btn-outline-danger btn-sm" id="btn-disconnect-supabase" onclick="app && app.disconnectSupabase()">Clear / Reset</button>
           <div style="display:flex; gap:0.5rem;">
-            <button type="button" class="btn btn-secondary" onclick="app.closeModal('modal-supabase-config')">Cancel</button>
+            <button type="button" class="btn btn-secondary" onclick="closeSupabaseConfigModal()">Cancel</button>
             <button type="submit" class="btn btn-emerald" id="btn-save-supabase">
               Save & Connect Database
             </button>
@@ -66,12 +84,14 @@
       </div>
 
       <!-- Supabase Cloud Connection Status Banner -->
-      <div class="auth-db-banner" id="auth-db-banner" onclick="app.openSupabaseConfigModal()" title="Click to view/edit Supabase credentials">
+      <div class="auth-db-banner" id="auth-db-banner" onclick="openSupabaseConfigModal()" title="Click to view/edit Supabase credentials">
         <div class="db-status-label">
           <span class="db-dot" id="auth-db-dot"></span>
           <span id="auth-db-status-text">Database: Local SQLite (Click to connect Supabase)</span>
         </div>
-        <span class="db-action-link" id="auth-db-action-btn">Configure ⚡</span>
+        <button type="button" class="db-action-btn" id="auth-db-action-btn" onclick="event.stopPropagation(); openSupabaseConfigModal();">
+          Connect ⚡
+        </button>
       </div>
 
       <!-- Role Selector Tabs -->
@@ -171,7 +191,7 @@
 
       <!-- Controls -->
       <div class="nav-controls">
-        <button class="db-status-badge" id="db-status-badge" onclick="app.openSupabaseConfigModal()" title="Click to view/edit Supabase API Keys">
+        <button class="db-status-badge" id="db-status-badge" onclick="openSupabaseConfigModal()" title="Click to view/edit Supabase API Keys">
           <span class="db-dot" id="db-dot"></span>
           <span id="db-status-text">Connecting...</span>
           <span style="font-size: 0.65rem; opacity: 0.7; margin-left: 2px;">⚙️</span>
