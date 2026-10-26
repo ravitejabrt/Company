@@ -1754,8 +1754,380 @@ class CollectionApp {
     this.openModal('modal-agent-portfolio');
   }
 
+  printHtmlDocument(title, bodyContent) {
+    let printFrame = document.getElementById('nexus-print-iframe');
+    if (!printFrame) {
+      printFrame = document.createElement('iframe');
+      printFrame.id = 'nexus-print-iframe';
+      printFrame.style.position = 'fixed';
+      printFrame.style.right = '0';
+      printFrame.style.bottom = '0';
+      printFrame.style.width = '0';
+      printFrame.style.height = '0';
+      printFrame.style.border = 'none';
+      document.body.appendChild(printFrame);
+    }
+
+    const doc = printFrame.contentWindow.document;
+    doc.open();
+    doc.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>${title}</title>
+        <style>
+          @page {
+            size: A4 landscape;
+            margin: 10mm 12mm;
+          }
+          * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+          }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            color: #0f172a;
+            background: #ffffff;
+            font-size: 9pt;
+            line-height: 1.35;
+            padding: 0;
+          }
+          .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 2px solid #0f172a;
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+          }
+          .title {
+            font-size: 15pt;
+            font-weight: 800;
+            color: #0f172a;
+            letter-spacing: -0.01em;
+          }
+          .subtitle {
+            font-size: 8pt;
+            color: #475569;
+            margin-top: 2px;
+          }
+          .meta-right {
+            text-align: right;
+            font-size: 8pt;
+            color: #475569;
+          }
+          .meta-right strong {
+            color: #0f172a;
+          }
+          .kpis {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 14px;
+          }
+          .kpi {
+            flex: 1;
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+            border-radius: 6px;
+            padding: 8px 10px;
+          }
+          .kpi-label {
+            font-size: 7pt;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+          }
+          .kpi-val {
+            font-size: 12pt;
+            font-weight: 800;
+            color: #0f172a;
+            margin-top: 2px;
+            font-family: 'JetBrains Mono', Consolas, monospace;
+          }
+          .kpi-sub {
+            font-size: 7pt;
+            color: #94a3b8;
+            margin-top: 1px;
+          }
+          .section-title {
+            font-size: 10pt;
+            font-weight: 700;
+            color: #0f172a;
+            margin: 12px 0 6px 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 8.5pt;
+            margin-bottom: 10px;
+          }
+          th {
+            background: #f1f5f9;
+            color: #0f172a;
+            font-weight: 700;
+            text-align: left;
+            padding: 5px 8px;
+            border: 1px solid #cbd5e1;
+            font-size: 7.5pt;
+            text-transform: uppercase;
+          }
+          td {
+            padding: 5px 8px;
+            border: 1px solid #e2e8f0;
+            color: #1e293b;
+          }
+          tr:nth-child(even) td {
+            background: #fafafa;
+          }
+          .table-total td {
+            background: #f1f5f9 !important;
+            font-weight: 800;
+            border-top: 2px solid #0f172a;
+          }
+          .footer-note {
+            display: flex;
+            justify-content: space-between;
+            font-size: 7.5pt;
+            color: #64748b;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 6px;
+            margin-top: 10px;
+          }
+          .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 7pt;
+            font-weight: 700;
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+          }
+        </style>
+      </head>
+      <body>
+        ${bodyContent}
+      </body>
+      </html>
+    `);
+    doc.close();
+
+    setTimeout(() => {
+      printFrame.contentWindow.focus();
+      printFrame.contentWindow.print();
+    }, 250);
+  }
+
   printAgentPortfolio() {
-    window.print();
+    if (!this.currentViewingAgentId) return;
+    const agentId = Number(this.currentViewingAgentId);
+    const agent = this.agents.find(a => Number(a.id) === agentId) || { name: 'Agent', email: '', phone: '', badgeColor: '#3b82f6' };
+    const shareMeta = this.agentShare.find(a => Number(a.id) === agentId) || {};
+
+    const filterDateFrom = document.getElementById('agent-detail-date-from')?.value || '';
+    const filterDateTo = document.getElementById('agent-detail-date-to')?.value || '';
+
+    let dateLabel = '';
+    if (filterDateFrom && filterDateTo) {
+      dateLabel = `${filterDateFrom} to ${filterDateTo}`;
+    } else if (filterDateFrom) {
+      dateLabel = `Date: ${filterDateFrom}`;
+    } else if (filterDateTo) {
+      dateLabel = `Up to: ${filterDateTo}`;
+    }
+
+    const assignedCompanies = this.companies.filter(c => Number(c.agent_id) === agentId);
+    const compIdSet = new Set(assignedCompanies.map(c => Number(c.id)));
+
+    const agentInvoices = this.invoices.filter(i => compIdSet.has(Number(i.company_id)) || Number(i.agent_id) === agentId);
+    const filteredInvoices = agentInvoices.filter(inv => {
+      let matchDate = true;
+      if (filterDateFrom && filterDateTo) {
+        matchDate = inv.invoice_date >= filterDateFrom && inv.invoice_date <= filterDateTo;
+      } else if (filterDateFrom && !filterDateTo) {
+        matchDate = inv.invoice_date === filterDateFrom;
+      } else if (!filterDateFrom && filterDateTo) {
+        matchDate = inv.invoice_date <= filterDateTo;
+      }
+      return matchDate;
+    });
+
+    const agentCollections = this.collections.filter(c => Number(c.agent_id) === agentId);
+    const filteredCollections = agentCollections.filter(col => {
+      let matchDate = true;
+      if (filterDateFrom && filterDateTo) {
+        matchDate = col.payment_date >= filterDateFrom && col.payment_date <= filterDateTo;
+      } else if (filterDateFrom && !filterDateTo) {
+        matchDate = col.payment_date === filterDateFrom;
+      } else if (!filterDateFrom && filterDateTo) {
+        matchDate = col.payment_date <= filterDateTo;
+      }
+      return matchDate;
+    });
+
+    const isFiltered = Boolean(filterDateFrom || filterDateTo);
+    let targetAmount = 0;
+    let collectedAmount = 0;
+    let pendingAmount = 0;
+
+    if (isFiltered) {
+      targetAmount = filteredInvoices.reduce((s, i) => s + Number(i.amount || 0), 0);
+      collectedAmount = filteredCollections.reduce((s, c) => s + Number(c.amount || 0), 0);
+      pendingAmount = Math.max(0, targetAmount - collectedAmount);
+    } else {
+      targetAmount = assignedCompanies.reduce((s, c) => s + Number(c.target_amount || 0), 0);
+      collectedAmount = agentCollections.reduce((s, c) => s + Number(c.amount || 0), 0);
+      pendingAmount = Math.max(0, targetAmount - collectedAmount);
+    }
+
+    const progressPercent = targetAmount > 0 ? Number(((collectedAmount / targetAmount) * 100).toFixed(1)) : (collectedAmount > 0 ? 100 : 0);
+    const printDate = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+
+    const compRows = assignedCompanies.map(c => {
+      const compFilteredInv = filteredInvoices.filter(i => Number(i.company_id) === Number(c.id));
+      const compFilteredCol = filteredCollections.filter(col => Number(col.company_id) === Number(c.id));
+
+      const compTarget = isFiltered ? compFilteredInv.reduce((s, i) => s + Number(i.amount || 0), 0) : Number(c.target_amount || 0);
+      const compCollected = isFiltered ? compFilteredCol.reduce((s, col) => s + Number(col.amount || 0), 0) : Number(c.collected_amount || 0);
+      const compPending = isFiltered ? Math.max(0, compTarget - compCollected) : Number(c.pending_amount || 0);
+      const compProgress = compTarget > 0 ? Number(((compCollected / compTarget) * 100).toFixed(1)) : (compCollected > 0 ? 100 : 0);
+
+      return `
+        <tr>
+          <td><strong>${c.name}</strong></td>
+          <td>${c.category || 'General'}</td>
+          <td>${c.contact_person || 'N/A'} (${c.contact_phone || 'N/A'})</td>
+          <td style="font-weight:700; color:#0369a1;">${this.formatMoney(compTarget)}</td>
+          <td style="font-weight:700; color:#059669;">${this.formatMoney(compCollected)}</td>
+          <td style="font-weight:700; color:#d97706;">${this.formatMoney(compPending)}</td>
+          <td style="font-weight:700;">${compProgress}%</td>
+          <td><span class="badge">${c.status || 'Active'}</span></td>
+        </tr>
+      `;
+    }).join('');
+
+    const invRows = filteredInvoices.map(inv => `
+      <tr>
+        <td style="font-family:'JetBrains Mono', Consolas, monospace; font-weight:700; color:#0369a1;">${inv.invoice_number}</td>
+        <td>${inv.invoice_date}</td>
+        <td>${inv.due_date || '-'}</td>
+        <td><strong>${inv.company_name}</strong></td>
+        <td style="font-weight:700; color:#dc2626;">${this.formatMoney(inv.amount)}</td>
+        <td>${inv.notes || '-'}</td>
+      </tr>
+    `).join('');
+
+    const colRows = filteredCollections.map(col => `
+      <tr>
+        <td style="font-family:'JetBrains Mono', Consolas, monospace; font-weight:700; color:#059669;">${col.reference_no || 'TXN-' + col.id}</td>
+        <td>${col.payment_date}</td>
+        <td><strong>${col.company_name}</strong></td>
+        <td style="font-weight:700; color:#059669;">${this.formatMoney(col.amount)}</td>
+        <td>${col.payment_method || 'Direct'}</td>
+        <td>${col.notes || '-'}</td>
+      </tr>
+    `).join('');
+
+    const bodyContent = `
+      <div class="header">
+        <div>
+          <div class="title">Agent Collection Portfolio: ${agent.name}</div>
+          <div class="subtitle">${agent.email || 'No email'} • ${agent.phone || 'No phone'} • Tier: ${shareMeta.suggestedTier || 'Standard'}</div>
+        </div>
+        <div class="meta-right">
+          <div>Generated on: <strong>${printDate}</strong></div>
+          <div>Filter: <strong>${dateLabel || 'All-Time Overall Portfolio'}</strong></div>
+        </div>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi">
+          <div class="kpi-label">Amount to Collect (Target)</div>
+          <div class="kpi-val" style="color:#0284c7;">${this.formatMoney(targetAmount)}</div>
+          <div class="kpi-sub">${isFiltered ? `Billed in ${dateLabel}` : 'Across Assigned Accounts'}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Amount Collected</div>
+          <div class="kpi-val" style="color:#059669;">${this.formatMoney(collectedAmount)}</div>
+          <div class="kpi-sub">${isFiltered ? `Recovered in ${dateLabel}` : 'All-time total recovered'}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Amount Pending</div>
+          <div class="kpi-val" style="color:#d97706;">${this.formatMoney(pendingAmount)}</div>
+          <div class="kpi-sub">${isFiltered ? `Pending for ${dateLabel}` : 'Total outstanding portfolio dues'}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Recovery Progress</div>
+          <div class="kpi-val" style="color:#7c3aed;">${progressPercent}%</div>
+          <div class="kpi-sub">Recovery rate</div>
+        </div>
+      </div>
+
+      <div class="section-title">🏢 Assigned Companies Portfolio (${assignedCompanies.length} Companies)</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Company Name</th>
+            <th>Sector</th>
+            <th>Contact Person</th>
+            <th>Target / Invoiced</th>
+            <th>Collected</th>
+            <th>Pending</th>
+            <th>Recovery Rate</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${compRows || '<tr><td colspan="8" style="text-align:center; padding:10px; color:#64748b;">No companies assigned.</td></tr>'}
+        </tbody>
+      </table>
+
+      <div class="section-title">📄 Company Bills & Invoices Generated (${filteredInvoices.length} Invoices)</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Invoice #</th>
+            <th>Invoice Date</th>
+            <th>Due Date</th>
+            <th>Company</th>
+            <th>Bill Amount</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${invRows || '<tr><td colspan="6" style="text-align:center; padding:10px; color:#64748b;">No invoices found for this period.</td></tr>'}
+        </tbody>
+      </table>
+
+      <div class="section-title">💵 Collections Recovered (${filteredCollections.length} Receipts)</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Receipt #</th>
+            <th>Payment Date</th>
+            <th>Company</th>
+            <th>Amount Collected</th>
+            <th>Method</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${colRows || '<tr><td colspan="6" style="text-align:center; padding:10px; color:#64748b;">No collections found for this period.</td></tr>'}
+        </tbody>
+      </table>
+
+      <div class="footer-note">
+        <span>Agent Portfolio Statement • Nexus Collections Management System</span>
+        <span>Confidential Official Record</span>
+      </div>
+    `;
+
+    this.printHtmlDocument(`Agent Portfolio - ${agent.name}`, bodyContent);
   }
 
   resetAgentDetailFilters() {
@@ -2445,7 +2817,147 @@ class CollectionApp {
   }
 
   printInvoicesRegistry() {
-    window.print();
+    const search = (document.getElementById('invoice-search')?.value || '').toLowerCase();
+    const filterCompany = document.getElementById('filter-invoice-company')?.value || '';
+    const filterAgent = document.getElementById('filter-invoice-agent')?.value || '';
+    const filterDateFrom = document.getElementById('filter-invoice-date-from')?.value || '';
+    const filterDateTo = document.getElementById('filter-invoice-date-to')?.value || '';
+
+    let dateLabel = '';
+    if (filterDateFrom && filterDateTo) {
+      dateLabel = `${filterDateFrom} to ${filterDateTo}`;
+    } else if (filterDateFrom) {
+      dateLabel = `Date: ${filterDateFrom}`;
+    } else if (filterDateTo) {
+      dateLabel = `Up to: ${filterDateTo}`;
+    }
+
+    const filtered = this.invoices.filter(inv => {
+      const matchSearch = !search ||
+                          inv.invoice_number.toLowerCase().includes(search) ||
+                          inv.company_name.toLowerCase().includes(search) ||
+                          (inv.agent_name && inv.agent_name.toLowerCase().includes(search));
+      const matchCompany = !filterCompany || String(inv.company_id) === filterCompany;
+      const matchAgent = !filterAgent || String(inv.agent_id) === filterAgent;
+
+      let matchDate = true;
+      if (filterDateFrom && filterDateTo) {
+        matchDate = inv.invoice_date >= filterDateFrom && inv.invoice_date <= filterDateTo;
+      } else if (filterDateFrom && !filterDateTo) {
+        matchDate = inv.invoice_date === filterDateFrom;
+      } else if (!filterDateFrom && filterDateTo) {
+        matchDate = inv.invoice_date <= filterDateTo;
+      }
+
+      return matchSearch && matchCompany && matchAgent && matchDate;
+    });
+
+    const totalCount = filtered.length;
+    const totalAmount = filtered.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
+
+    const selectedCompany = filterCompany ? this.companies.find(c => String(c.id) === String(filterCompany)) : null;
+    const selectedAgent = filterAgent ? (this.agentShare.find(a => String(a.id) === String(filterAgent)) || this.agents.find(a => String(a.id) === String(filterAgent))) : null;
+
+    const totalAllTarget = this.stats?.totalTarget || totalAmount;
+    const totalAllCollected = selectedCompany ? selectedCompany.collected_amount : (selectedAgent ? (selectedAgent.totalCollected || 0) : (this.stats?.totalCollected || 0));
+    const totalAllPending = selectedCompany ? selectedCompany.pending_amount : (Math.max(0, totalAllTarget - totalAllCollected));
+
+    let scopeLabel = 'All Accounts & Assigned Agents';
+    if (selectedCompany && selectedAgent) {
+      scopeLabel = `Company: ${selectedCompany.name} • Assigned Agent: ${selectedAgent.name}`;
+    } else if (selectedCompany) {
+      scopeLabel = `Company: ${selectedCompany.name} (Category: ${selectedCompany.category || 'General'})`;
+    } else if (selectedAgent) {
+      scopeLabel = `Assigned Collector Agent: ${selectedAgent.name}`;
+    }
+    if (dateLabel) {
+      scopeLabel += ` • Period: ${dateLabel}`;
+    }
+
+    const printDate = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+
+    const rowsHtml = filtered.map(inv => `
+      <tr>
+        <td style="font-family:'JetBrains Mono', Consolas, monospace; font-weight:700; color:#0369a1;">${inv.invoice_number}</td>
+        <td>${inv.invoice_date}</td>
+        <td>${inv.due_date || '-'}</td>
+        <td><strong>${inv.company_name}</strong></td>
+        <td>${inv.agent_name || 'Unassigned'}</td>
+        <td style="font-weight:700; font-family:'JetBrains Mono', Consolas, monospace; color:#dc2626;">${this.formatMoney(inv.amount)}</td>
+        <td style="font-size:8pt; color:#475569;">${inv.notes || '-'}</td>
+        <td><span class="badge">${inv.created_by || 'Prime User'}</span></td>
+      </tr>
+    `).join('');
+
+    const bodyContent = `
+      <div class="header">
+        <div>
+          <div class="title">Company Billing & Invoice Registry</div>
+          <div class="subtitle">Master corporate dues and recovery target billing statement</div>
+        </div>
+        <div class="meta-right">
+          <div>Generated on: <strong>${printDate}</strong></div>
+          <div>Filter Scope: <strong>${scopeLabel}</strong></div>
+        </div>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi">
+          <div class="kpi-label">Total Invoices</div>
+          <div class="kpi-val" style="color:#0284c7;">${totalCount} Bills</div>
+          <div class="kpi-sub">Filtered record count</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Total Bill Amount</div>
+          <div class="kpi-val" style="color:#dc2626;">${this.formatMoney(totalAmount)}</div>
+          <div class="kpi-sub">Total dues invoiced</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Total Collected</div>
+          <div class="kpi-val" style="color:#059669;">${this.formatMoney(totalAllCollected)}</div>
+          <div class="kpi-sub">Recovered payments</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Total Pending</div>
+          <div class="kpi-val" style="color:#d97706;">${this.formatMoney(totalAllPending)}</div>
+          <div class="kpi-sub">Outstanding recovery dues</div>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 13%;">Invoice #</th>
+            <th style="width: 10%;">Invoice Date</th>
+            <th style="width: 10%;">Due Date</th>
+            <th style="width: 18%;">Company</th>
+            <th style="width: 14%;">Assigned Agent</th>
+            <th style="width: 13%;">Bill Amount</th>
+            <th style="width: 14%;">Notes / Service</th>
+            <th style="width: 8%;">Entered By</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml || '<tr><td colspan="8" style="text-align:center; padding:15px; color:#64748b;">No company bills found matching the selected filters.</td></tr>'}
+        </tbody>
+        <tfoot>
+          <tr class="table-total">
+            <td colspan="5" style="text-align:right; font-weight:700;">TOTAL (${totalCount} INVOICES):</td>
+            <td style="font-weight:800; font-family:'JetBrains Mono', Consolas, monospace; color:#dc2626; font-size:10pt;">${this.formatMoney(totalAmount)}</td>
+            <td colspan="2" style="font-size:7.5pt; color:#475569;">
+              ${selectedCompany ? `Collected: <strong>${this.formatMoney(selectedCompany.collected_amount)}</strong> • Pending: <strong>${this.formatMoney(selectedCompany.pending_amount)}</strong>` : ''}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <div class="footer-note">
+        <span>Showing ${totalCount} Invoices • Nexus Corporate Recovery Management</span>
+        <span>Page 1 • Official Business Record</span>
+      </div>
+    `;
+
+    this.printHtmlDocument('Company Billing & Invoice Registry', bodyContent);
   }
 
   resetInvoiceFilters() {
