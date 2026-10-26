@@ -754,6 +754,11 @@
               </div>
             </div>
 
+            <!-- Dynamic Invoice Summary Header (Total Invoices & Total Bill Amount for Company / Agent Selection) -->
+            <div id="invoice-filter-summary-card" class="invoice-filter-summary-card">
+              <!-- Dynamically populated via JS -->
+            </div>
+
             <div class="table-responsive">
               <table class="data-table">
                 <thead>
@@ -772,7 +777,15 @@
                 <tbody id="invoices-table-tbody">
                   <!-- Populated via JS -->
                 </tbody>
+                <tfoot id="invoices-table-tfoot">
+                  <!-- Dynamic Totals Row Populated via JS -->
+                </tfoot>
               </table>
+            </div>
+
+            <!-- Dynamic Bottom Summary Bar for Selected Company / Agent -->
+            <div id="invoice-bottom-summary-bar" class="invoice-bottom-summary-bar">
+              <!-- Dynamically populated via JS -->
             </div>
           </div>
         </section>

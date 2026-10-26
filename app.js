@@ -1169,6 +1169,10 @@ class CollectionApp {
     const tbody = document.getElementById('invoices-table-tbody');
     if (!tbody) return;
 
+    const summaryCard = document.getElementById('invoice-filter-summary-card');
+    const tfoot = document.getElementById('invoices-table-tfoot');
+    const bottomSummaryBar = document.getElementById('invoice-bottom-summary-bar');
+
     const search = (document.getElementById('invoice-search')?.value || '').toLowerCase();
     const filterCompany = document.getElementById('filter-invoice-company')?.value || '';
     const filterAgent = document.getElementById('filter-invoice-agent')?.value || '';
@@ -1182,8 +1186,210 @@ class CollectionApp {
       return matchSearch && matchCompany && matchAgent;
     });
 
+    // Compute dynamic totals
+    const totalCount = filtered.length;
+    const totalAmount = filtered.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
+
+    // Look up selected Company and Agent metadata
+    const selectedCompany = filterCompany ? this.companies.find(c => String(c.id) === String(filterCompany)) : null;
+    const selectedAgent = filterAgent ? (this.agentShare.find(a => String(a.id) === String(filterAgent)) || this.agents.find(a => String(a.id) === String(filterAgent))) : null;
+
+    // Render Dynamic Summary Card (Total Invoices & Total Bill Amount)
+    if (summaryCard) {
+      if (selectedCompany && selectedAgent) {
+        summaryCard.innerHTML = `
+          <div class="invoice-summary-left">
+            <div class="invoice-summary-title">
+              <span class="icon">🏢</span>
+              <span>${selectedCompany.name}</span>
+              <span class="metric-badge badge-blue">Category: ${selectedCompany.category || 'General'}</span>
+            </div>
+            <div class="invoice-summary-subtitle">
+              <span>👤 Assigned Agent: <strong style="color:#38bdf8">${selectedAgent.name}</strong></span>
+              <span>•</span>
+              <span>📞 Contact: <strong>${selectedCompany.contact_person || 'N/A'} (${selectedCompany.contact_phone || 'N/A'})</strong></span>
+            </div>
+          </div>
+          <div class="invoice-summary-metrics">
+            <div class="invoice-metric-box blue">
+              <span class="label">Total Invoices</span>
+              <span class="val">${totalCount} Bills</span>
+            </div>
+            <div class="invoice-metric-box red">
+              <span class="label">Total Bill Amount</span>
+              <span class="val">${this.formatMoney(totalAmount)}</span>
+            </div>
+            <div class="invoice-metric-box emerald">
+              <span class="label">Company Recovered</span>
+              <span class="val">${this.formatMoney(selectedCompany.collected_amount)}</span>
+            </div>
+            <div class="invoice-metric-box amber">
+              <span class="label">Pending Dues</span>
+              <span class="val">${this.formatMoney(selectedCompany.pending_amount)}</span>
+            </div>
+          </div>
+        `;
+      } else if (selectedCompany) {
+        summaryCard.innerHTML = `
+          <div class="invoice-summary-left">
+            <div class="invoice-summary-title">
+              <span class="icon">🏢</span>
+              <span>${selectedCompany.name}</span>
+              <span class="metric-badge badge-blue">Category: ${selectedCompany.category || 'General'}</span>
+            </div>
+            <div class="invoice-summary-subtitle">
+              <span>👤 Assigned Collector: <strong style="color:#38bdf8">${selectedCompany.agent_name || 'Unassigned'}</strong></span>
+              <span>•</span>
+              <span>📞 Contact: <strong>${selectedCompany.contact_person || 'N/A'} (${selectedCompany.contact_phone || 'N/A'})</strong></span>
+            </div>
+          </div>
+          <div class="invoice-summary-metrics">
+            <div class="invoice-metric-box blue">
+              <span class="label">Total Invoices</span>
+              <span class="val">${totalCount} Bills</span>
+            </div>
+            <div class="invoice-metric-box red">
+              <span class="label">Total Bill Amount</span>
+              <span class="val">${this.formatMoney(totalAmount)}</span>
+            </div>
+            <div class="invoice-metric-box emerald">
+              <span class="label">Recovered Money</span>
+              <span class="val">${this.formatMoney(selectedCompany.collected_amount)} (${selectedCompany.progress_percent || 0}%)</span>
+            </div>
+            <div class="invoice-metric-box amber">
+              <span class="label">Remaining Pending</span>
+              <span class="val">${this.formatMoney(selectedCompany.pending_amount)}</span>
+            </div>
+          </div>
+        `;
+      } else if (selectedAgent) {
+        const assignedCompaniesCount = this.companies.filter(c => String(c.agent_id) === String(selectedAgent.id)).length;
+        summaryCard.innerHTML = `
+          <div class="invoice-summary-left">
+            <div class="invoice-summary-title">
+              <span class="icon">👤</span>
+              <span>Agent Invoicing: ${selectedAgent.name}</span>
+              <span class="metric-badge badge-green">Assigned Agent</span>
+            </div>
+            <div class="invoice-summary-subtitle">
+              <span>🏢 Managing: <strong style="color:#38bdf8">${assignedCompaniesCount} Assigned Companies</strong></span>
+              <span>•</span>
+              <span>✉️ Email: <strong>${selectedAgent.email}</strong></span>
+              <span>•</span>
+              <span>📞 Phone: <strong>${selectedAgent.phone || 'N/A'}</strong></span>
+            </div>
+          </div>
+          <div class="invoice-summary-metrics">
+            <div class="invoice-metric-box blue">
+              <span class="label">Total Invoices</span>
+              <span class="val">${totalCount} Bills</span>
+            </div>
+            <div class="invoice-metric-box red">
+              <span class="label">Total Bill Amount</span>
+              <span class="val">${this.formatMoney(totalAmount)}</span>
+            </div>
+            <div class="invoice-metric-box emerald">
+              <span class="label">Agent Recovered</span>
+              <span class="val">${this.formatMoney(selectedAgent.totalCollected || 0)}</span>
+            </div>
+            <div class="invoice-metric-box amber">
+              <span class="label">Performance Tier</span>
+              <span class="val" style="font-size:0.85rem">${selectedAgent.suggestedTier || 'Standard'}</span>
+            </div>
+          </div>
+        `;
+      } else {
+        const totalAllTarget = this.stats?.totalTarget || totalAmount;
+        const totalAllCollected = this.stats?.totalCollected || 0;
+        const totalAllPending = this.stats?.pendingAmount || Math.max(0, totalAllTarget - totalAllCollected);
+
+        summaryCard.innerHTML = `
+          <div class="invoice-summary-left">
+            <div class="invoice-summary-title">
+              <span class="icon">📊</span>
+              <span>All Company Bills & Invoices Registry</span>
+              <span class="metric-badge badge-purple">Prime Overview</span>
+            </div>
+            <div class="invoice-summary-subtitle">
+              <span>Tracking <strong>${this.companies.length} Companies</strong> across <strong>${this.agents.length} Collection Agents</strong></span>
+            </div>
+          </div>
+          <div class="invoice-summary-metrics">
+            <div class="invoice-metric-box blue">
+              <span class="label">Total Invoices</span>
+              <span class="val">${totalCount} Bills</span>
+            </div>
+            <div class="invoice-metric-box red">
+              <span class="label">Total Bill Amount</span>
+              <span class="val">${this.formatMoney(totalAmount)}</span>
+            </div>
+            <div class="invoice-metric-box emerald">
+              <span class="label">Total Collected</span>
+              <span class="val">${this.formatMoney(totalAllCollected)}</span>
+            </div>
+            <div class="invoice-metric-box amber">
+              <span class="label">Total Pending</span>
+              <span class="val">${this.formatMoney(totalAllPending)}</span>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    // Render Table TFoot (Totals Row)
+    if (tfoot) {
+      let selectionLabel = 'GRAND TOTAL';
+      if (selectedCompany && selectedAgent) {
+        selectionLabel = `${selectedCompany.name.toUpperCase()} (${selectedAgent.name.toUpperCase()}) TOTAL`;
+      } else if (selectedCompany) {
+        selectionLabel = `${selectedCompany.name.toUpperCase()} TOTAL`;
+      } else if (selectedAgent) {
+        selectionLabel = `AGENT ${selectedAgent.name.toUpperCase()} TOTAL`;
+      }
+
+      tfoot.innerHTML = `
+        <tr class="table-total-row">
+          <td colspan="5" style="text-align: right; font-weight: 700; color: #94a3b8; font-size: 0.85rem;">
+            ${selectionLabel} (<span style="color:#38bdf8; font-weight:800;">${totalCount} ${totalCount === 1 ? 'Invoice' : 'Invoices'}</span>):
+          </td>
+          <td style="font-weight: 800; font-family: 'JetBrains Mono', monospace; color: #f87171; font-size: 1.05rem;">
+            ${this.formatMoney(totalAmount)}
+          </td>
+          <td colspan="3" style="color: #94a3b8; font-size: 0.78rem;">
+            ${selectedCompany ? `Collected: <strong style="color:#34d399;">${this.formatMoney(selectedCompany.collected_amount)}</strong> • Pending: <strong style="color:#fbbf24;">${this.formatMoney(selectedCompany.pending_amount)}</strong>` : ''}
+          </td>
+        </tr>
+      `;
+    }
+
+    // Render Bottom Summary Bar
+    if (bottomSummaryBar) {
+      let contextHtml = `Showing <strong>${totalCount} ${totalCount === 1 ? 'Invoice' : 'Invoices'}</strong>`;
+      if (selectedCompany) {
+        contextHtml += ` for company <strong style="color:#ffffff;">${selectedCompany.name}</strong>`;
+      }
+      if (selectedAgent) {
+        contextHtml += ` assigned to <strong style="color:#38bdf8;">${selectedAgent.name}</strong>`;
+      }
+      if (!selectedCompany && !selectedAgent) {
+        contextHtml += ` across all accounts`;
+      }
+
+      bottomSummaryBar.innerHTML = `
+        <div class="summary-left">
+          <span>${contextHtml}</span>
+        </div>
+        <div class="summary-totals">
+          <span>Total Number of Invoices: <strong class="highlight-val" style="color:#38bdf8;">${totalCount}</strong></span>
+          <span>•</span>
+          <span>Total Bill Amount: <strong class="highlight-val" style="color:#f87171; font-size:1.05rem;">${this.formatMoney(totalAmount)}</strong></span>
+          ${selectedCompany ? `<span>•</span><span>Remaining Pending: <strong class="highlight-val" style="color:#fbbf24;">${this.formatMoney(selectedCompany.pending_amount)}</strong></span>` : ''}
+        </div>
+      `;
+    }
+
     if (filtered.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:1.5rem; color:#64748b;">No company bills found. Click "+ Add Company Bill / Invoice" to issue bills.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:1.5rem; color:#64748b;">No company bills found matching the selected filters.</td></tr>';
       return;
     }
 
