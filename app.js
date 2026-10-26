@@ -633,11 +633,15 @@ class CollectionApp {
   openModal(modalId) {
     const modal = document.getElementById(modalId);
     if (modal) modal.classList.add('open');
+    document.body.classList.add('modal-open');
   }
 
   closeModal(modalId) {
     const modal = document.getElementById(modalId);
     if (modal) modal.classList.remove('open');
+    if (!document.querySelector('.modal-backdrop.open')) {
+      document.body.classList.remove('modal-open');
+    }
   }
 
   showToast(message, type = 'success') {
@@ -1315,16 +1319,8 @@ class CollectionApp {
     const search = (document.getElementById('invoice-search')?.value || '').toLowerCase();
     const filterCompany = document.getElementById('filter-invoice-company')?.value || '';
     const filterAgent = document.getElementById('filter-invoice-agent')?.value || '';
-    const filterMonth = document.getElementById('filter-invoice-month')?.value || '';
     const filterDateFrom = document.getElementById('filter-invoice-date-from')?.value || '';
     const filterDateTo = document.getElementById('filter-invoice-date-to')?.value || '';
-
-    let monthLabel = '';
-    if (filterMonth) {
-      const [yr, mo] = filterMonth.split('-');
-      const d = new Date(Number(yr), Number(mo) - 1, 1);
-      monthLabel = isNaN(d) ? filterMonth : d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-    }
 
     let dateLabel = '';
     if (filterDateFrom && filterDateTo) {
@@ -1342,7 +1338,6 @@ class CollectionApp {
                           (inv.agent_name && inv.agent_name.toLowerCase().includes(search));
       const matchCompany = !filterCompany || String(inv.company_id) === filterCompany;
       const matchAgent = !filterAgent || String(inv.agent_id) === filterAgent;
-      const matchMonth = !filterMonth || (inv.invoice_date && inv.invoice_date.startsWith(filterMonth));
 
       let matchDate = true;
       if (filterDateFrom && filterDateTo) {
@@ -1353,7 +1348,7 @@ class CollectionApp {
         matchDate = inv.invoice_date <= filterDateTo;
       }
 
-      return matchSearch && matchCompany && matchAgent && matchMonth && matchDate;
+      return matchSearch && matchCompany && matchAgent && matchDate;
     });
 
     // Compute dynamic totals
@@ -1364,10 +1359,7 @@ class CollectionApp {
     const selectedCompany = filterCompany ? this.companies.find(c => String(c.id) === String(filterCompany)) : null;
     const selectedAgent = filterAgent ? (this.agentShare.find(a => String(a.id) === String(filterAgent)) || this.agents.find(a => String(a.id) === String(filterAgent))) : null;
 
-    const filterBadgesHtml = `
-      ${monthLabel ? `<span class="metric-badge badge-blue">🗓️ ${monthLabel}</span>` : ''}
-      ${dateLabel ? `<span class="metric-badge badge-purple">📅 ${dateLabel}</span>` : ''}
-    `;
+    const filterBadgesHtml = dateLabel ? `<span class="metric-badge badge-purple">📅 ${dateLabel}</span>` : '';
 
     // Render Dynamic Summary Card (Total Invoices & Total Bill Amount)
     if (summaryCard) {
@@ -1525,9 +1517,6 @@ class CollectionApp {
       } else if (selectedAgent) {
         selectionLabel = `AGENT ${selectedAgent.name.toUpperCase()} TOTAL`;
       }
-      if (monthLabel) {
-        selectionLabel += ` [${monthLabel.toUpperCase()}]`;
-      }
       if (dateLabel) {
         selectionLabel += ` [${dateLabel.toUpperCase()}]`;
       }
@@ -1556,13 +1545,10 @@ class CollectionApp {
       if (selectedAgent) {
         contextHtml += ` assigned to <strong style="color:#38bdf8;">${selectedAgent.name}</strong>`;
       }
-      if (monthLabel) {
-        contextHtml += ` generated in <strong style="color:#38bdf8;">${monthLabel}</strong>`;
-      }
       if (dateLabel) {
         contextHtml += ` for <strong style="color:#c084fc;">${dateLabel}</strong>`;
       }
-      if (!selectedCompany && !selectedAgent && !monthLabel && !dateLabel) {
+      if (!selectedCompany && !selectedAgent && !dateLabel) {
         contextHtml += ` across all accounts`;
       }
 
@@ -2456,47 +2442,22 @@ class CollectionApp {
         this.companies.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
       if (cur) filterInvComp.value = cur;
     }
+  }
 
-    // 5. Monthly invoice generated filter in invoice tab
-    const filterInvMonth = document.getElementById('filter-invoice-month');
-    if (filterInvMonth) {
-      const curMonth = filterInvMonth.value;
-      const monthMap = new Map();
-      (this.invoices || []).forEach(inv => {
-        if (inv.invoice_date && inv.invoice_date.length >= 7) {
-          const ym = inv.invoice_date.substring(0, 7);
-          monthMap.set(ym, (monthMap.get(ym) || 0) + 1);
-        }
-      });
-      const sortedYm = Array.from(monthMap.keys()).sort().reverse();
-      
-      let monthOpts = '<option value="">📅 All Months</option>';
-      sortedYm.forEach(ym => {
-        const [yr, mo] = ym.split('-');
-        const dateObj = new Date(Number(yr), Number(mo) - 1, 1);
-        const monthName = isNaN(dateObj) ? ym : dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-        const count = monthMap.get(ym);
-        monthOpts += `<option value="${ym}">📅 ${monthName} (${count} ${count === 1 ? 'Bill' : 'Bills'})</option>`;
-      });
-      filterInvMonth.innerHTML = monthOpts;
-      if (curMonth && monthMap.has(curMonth)) {
-        filterInvMonth.value = curMonth;
-      }
-    }
+  printInvoicesRegistry() {
+    window.print();
   }
 
   resetInvoiceFilters() {
     const searchInput = document.getElementById('invoice-search');
     const compSelect = document.getElementById('filter-invoice-company');
     const agentSelect = document.getElementById('filter-invoice-agent');
-    const monthSelect = document.getElementById('filter-invoice-month');
     const dateFromInput = document.getElementById('filter-invoice-date-from');
     const dateToInput = document.getElementById('filter-invoice-date-to');
 
     if (searchInput) searchInput.value = '';
     if (compSelect) compSelect.value = '';
     if (agentSelect) agentSelect.value = '';
-    if (monthSelect) monthSelect.value = '';
     if (dateFromInput) dateFromInput.value = '';
     if (dateToInput) dateToInput.value = '';
 
@@ -2508,7 +2469,6 @@ class CollectionApp {
     document.getElementById('invoice-search')?.addEventListener('input', () => this.renderInvoicesTable());
     document.getElementById('filter-invoice-company')?.addEventListener('change', () => this.renderInvoicesTable());
     document.getElementById('filter-invoice-agent')?.addEventListener('change', () => this.renderInvoicesTable());
-    document.getElementById('filter-invoice-month')?.addEventListener('change', () => this.renderInvoicesTable());
     ['change', 'input'].forEach(evt => {
       document.getElementById('filter-invoice-date-from')?.addEventListener(evt, () => this.renderInvoicesTable());
       document.getElementById('filter-invoice-date-to')?.addEventListener(evt, () => this.renderInvoicesTable());

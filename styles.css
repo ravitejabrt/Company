@@ -1973,24 +1973,124 @@ body {
    ==================================================================== */
 @media print {
   @page {
-    size: A4 portrait;
-    margin: 1.2cm;
+    size: A4 landscape;
+    margin: 1cm;
   }
 
   body {
     background: #ffffff !important;
     color: #0f172a !important;
-    font-size: 11pt !important;
+    font-size: 10pt !important;
   }
 
-  /* Hide entire page except open agent portfolio modal */
-  body > * {
-    visibility: hidden !important;
+  /* General elements hidden during print */
+  .top-navbar,
+  .quick-action-bar,
+  .portal-tabs-nav,
+  .table-filters-bar,
+  .panel-actions,
+  .toast-container,
+  #login-overlay,
+  button,
+  .btn,
+  .btn-print-pdf,
+  .btn-close,
+  .btn-reset-filters,
+  .agent-fleet-actions {
+    display: none !important;
   }
 
-  #modal-agent-portfolio,
-  #modal-agent-portfolio * {
-    visibility: visible !important;
+  /* ==================================================================
+     CASE 1: PRINTING INVOICES REGISTRY (NO MODAL OPEN)
+     ================================================================== */
+  body:not(.modal-open) #tab-dashboard,
+  body:not(.modal-open) #tab-companies,
+  body:not(.modal-open) #tab-agents,
+  body:not(.modal-open) #tab-rewards,
+  body:not(.modal-open) #tab-ledger,
+  body:not(.modal-open) #agent-view-container,
+  body:not(.modal-open) .modal-backdrop {
+    display: none !important;
+  }
+
+  body:not(.modal-open) #tab-invoices {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  body:not(.modal-open) .dashboard-panel {
+    background: #ffffff !important;
+    border: none !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+  }
+
+  body:not(.modal-open) .panel-header h3 {
+    color: #0f172a !important;
+    font-size: 1.4rem !important;
+    font-weight: 800 !important;
+  }
+
+  body:not(.modal-open) .panel-subtitle {
+    color: #475569 !important;
+    font-size: 8.5pt !important;
+  }
+
+  body:not(.modal-open) .invoice-filter-summary-card {
+    background: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+    margin-bottom: 1rem !important;
+  }
+
+  body:not(.modal-open) .invoice-summary-title span {
+    color: #0f172a !important;
+  }
+
+  body:not(.modal-open) .invoice-summary-subtitle {
+    color: #475569 !important;
+  }
+
+  body:not(.modal-open) .invoice-metric-box {
+    border: 1px solid #cbd5e1 !important;
+    background: #ffffff !important;
+  }
+
+  body:not(.modal-open) .invoice-metric-box .label {
+    color: #475569 !important;
+    font-size: 7.5pt !important;
+  }
+
+  body:not(.modal-open) .invoice-metric-box.blue .val { color: #0284c7 !important; }
+  body:not(.modal-open) .invoice-metric-box.red .val { color: #dc2626 !important; }
+  body:not(.modal-open) .invoice-metric-box.emerald .val { color: #059669 !important; }
+  body:not(.modal-open) .invoice-metric-box.amber .val { color: #d97706 !important; }
+
+  /* Invoices table hide actions column (last column) */
+  body:not(.modal-open) .data-table th:last-child,
+  body:not(.modal-open) .data-table td:last-child {
+    display: none !important;
+  }
+
+  body:not(.modal-open) .invoice-bottom-summary-bar {
+    background: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+    margin-top: 1rem !important;
+  }
+
+  body:not(.modal-open) .invoice-bottom-summary-bar span,
+  body:not(.modal-open) .invoice-bottom-summary-bar strong {
+    color: #0f172a !important;
+  }
+
+  /* ==================================================================
+     CASE 2: PRINTING AGENT PORTFOLIO MODAL (MODAL IS OPEN)
+     ================================================================== */
+  body.modal-open > *:not(#modal-agent-portfolio) {
+    display: none !important;
   }
 
   #modal-agent-portfolio {
@@ -2023,19 +2123,6 @@ body {
     padding: 0 !important;
   }
 
-  /* Hide interactive controls during print */
-  .btn-close,
-  .btn-reset-filters,
-  .btn-print-pdf,
-  .modal-footer,
-  .date-filter-inputs,
-  .filter-pill-label,
-  .filter-pill-item,
-  .agent-fleet-actions,
-  button {
-    display: none !important;
-  }
-
   .modal-header {
     border-bottom: 2px solid #0f172a !important;
     padding: 0 0 1rem 0 !important;
@@ -2051,13 +2138,6 @@ body {
   #agent-detail-contact {
     color: #475569 !important;
     font-size: 9pt !important;
-  }
-
-  .metric-badge {
-    border: 1px solid #cbd5e1 !important;
-    color: #0f172a !important;
-    background: #f1f5f9 !important;
-    font-size: 8pt !important;
   }
 
   .agent-detail-filter-bar {
@@ -2081,35 +2161,6 @@ body {
     margin-bottom: 1.25rem !important;
   }
 
-  .invoice-metric-box {
-    border: 1px solid #cbd5e1 !important;
-    background: #f8fafc !important;
-    padding: 0.65rem !important;
-    border-radius: 6px !important;
-  }
-
-  .invoice-metric-box .label {
-    color: #475569 !important;
-    font-size: 8pt !important;
-    font-weight: 700 !important;
-  }
-
-  .invoice-metric-box .val {
-    color: #0f172a !important;
-    font-size: 1.25rem !important;
-    font-weight: 800 !important;
-  }
-
-  .invoice-metric-box.blue .val { color: #0369a1 !important; }
-  .invoice-metric-box.emerald .val { color: #047857 !important; }
-  .invoice-metric-box.amber .val { color: #b45309 !important; }
-  .invoice-metric-box.purple .val { color: #6d28d9 !important; }
-
-  .kpi-subtext {
-    color: #64748b !important;
-    font-size: 7.5pt !important;
-  }
-
   .agent-portfolio-section {
     background: #ffffff !important;
     border: 1px solid #e2e8f0 !important;
@@ -2123,6 +2174,9 @@ body {
     font-size: 10.5pt !important;
   }
 
+  /* ==================================================================
+     COMMON DATA TABLE & METRIC RULES FOR PRINT
+     ================================================================== */
   .table-responsive {
     max-height: none !important;
     overflow: visible !important;
@@ -2150,5 +2204,23 @@ body {
 
   .data-table td strong {
     color: #0f172a !important;
+  }
+
+  .table-total-row td {
+    background: #f8fafc !important;
+    font-weight: 800 !important;
+    border-top: 2px solid #0f172a !important;
+  }
+
+  .metric-badge {
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+    background: #f1f5f9 !important;
+    font-size: 8pt !important;
+  }
+
+  .kpi-subtext {
+    color: #64748b !important;
+    font-size: 7.5pt !important;
   }
 }

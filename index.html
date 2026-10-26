@@ -736,7 +736,11 @@
                 <h3>Company Billing & Invoice Registry</h3>
                 <p class="panel-subtitle">Prime User enters corporate bills according to invoice number, date, and amount. These dues automatically reflect in the assigned agent's recovery target in Supabase.</p>
               </div>
-              <div class="panel-actions">
+              <div class="panel-actions" style="display:flex; gap:0.6rem; align-items:center;">
+                <button type="button" class="btn btn-outline-primary" onclick="app.printInvoicesRegistry()" title="Print or Save Invoices Registry as PDF">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                  Print / Save as PDF
+                </button>
                 <button class="btn btn-primary" id="btn-add-invoice-tab">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
                   + Add Company Bill / Invoice
@@ -766,14 +770,6 @@
                   </select>
                 </div>
 
-                <!-- Monthly Invoice Generated Filter -->
-                <div class="filter-pill-item">
-                  <label class="filter-pill-label" for="filter-invoice-month">Monthly:</label>
-                  <select id="filter-invoice-month" class="filter-dropdown">
-                    <option value="">📅 All Months</option>
-                  </select>
-                </div>
-
                 <!-- Date Wise Invoice Generated Filter -->
                 <div class="filter-pill-item date-filter-pill">
                   <label class="filter-pill-label" for="filter-invoice-date-from">Date Wise:</label>
@@ -788,6 +784,12 @@
                 <button type="button" id="btn-reset-invoice-filters" class="btn-reset-filters" title="Reset all invoice filters" onclick="app.resetInvoiceFilters()">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
                   Reset
+                </button>
+
+                <!-- Print / Save as PDF Button -->
+                <button type="button" class="btn-print-pdf" title="Print or Save Invoices Registry as PDF" onclick="app.printInvoicesRegistry()">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                  Print / Save as PDF
                 </button>
               </div>
             </div>
